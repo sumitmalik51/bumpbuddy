@@ -4,8 +4,8 @@
     {
       "name": "bumpbuddy-web",
       "runtimeExecutable": "C:\\Users\\SumitKumar\\dev\\flutter\\bin\\flutter.bat",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "5317"],
-      "port": 5317
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "5321"],
+      "port": 5321
     }
   ]
 }

@@ -45,6 +45,8 @@ class PregnancyProfile {
   String doctorName;
   String hospitalName;
   DateTime createdAt;
+  bool delivered; // babies have arrived — pregnancy tracking winds down
+  DateTime? deliveredAt;
 
   PregnancyProfile({
     required this.type,
@@ -56,6 +58,8 @@ class PregnancyProfile {
     this.doctorName = '',
     this.hospitalName = '',
     DateTime? createdAt,
+    this.delivered = false,
+    this.deliveredAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
   bool get isTwins => type == PregnancyType.twins;
@@ -70,6 +74,8 @@ class PregnancyProfile {
         'doctorName': doctorName,
         'hospitalName': hospitalName,
         'createdAt': createdAt.toIso8601String(),
+        'delivered': delivered,
+        'deliveredAt': deliveredAt?.toIso8601String(),
       };
 
   factory PregnancyProfile.fromJson(Map<String, dynamic> j) => PregnancyProfile(
@@ -86,6 +92,10 @@ class PregnancyProfile {
         doctorName: (j['doctorName'] ?? '') as String,
         hospitalName: (j['hospitalName'] ?? '') as String,
         createdAt: DateTime.parse(j['createdAt'] as String),
+        delivered: (j['delivered'] ?? false) as bool,
+        deliveredAt: j['deliveredAt'] == null
+            ? null
+            : DateTime.parse(j['deliveredAt'] as String),
       );
 }
 
@@ -330,6 +340,63 @@ class WeightEntry {
         id: j['id'] as String,
         date: DateTime.parse(j['date'] as String),
         kg: (j['kg'] as num).toDouble(),
+      );
+}
+
+class BpEntry {
+  final String id;
+  DateTime dateTime;
+  int systolic;
+  int diastolic;
+  String note;
+
+  BpEntry({
+    required this.id,
+    required this.dateTime,
+    required this.systolic,
+    required this.diastolic,
+    this.note = '',
+  });
+
+  /// 140/90 is the usual threshold doctors watch in pregnancy;
+  /// 160/110 warrants same-day contact.
+  bool get isHigh => systolic >= 140 || diastolic >= 90;
+  bool get isVeryHigh => systolic >= 160 || diastolic >= 110;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'dateTime': dateTime.toIso8601String(),
+        'systolic': systolic,
+        'diastolic': diastolic,
+        'note': note,
+      };
+
+  factory BpEntry.fromJson(Map<String, dynamic> j) => BpEntry(
+        id: j['id'] as String,
+        dateTime: DateTime.parse(j['dateTime'] as String),
+        systolic: (j['systolic'] as num).toInt(),
+        diastolic: (j['diastolic'] as num).toInt(),
+        note: (j['note'] ?? '') as String,
+      );
+}
+
+class Contraction {
+  final String id;
+  DateTime start;
+  int durationSec; // 0 while running
+
+  Contraction({required this.id, required this.start, this.durationSec = 0});
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'start': start.toIso8601String(),
+        'durationSec': durationSec,
+      };
+
+  factory Contraction.fromJson(Map<String, dynamic> j) => Contraction(
+        id: j['id'] as String,
+        start: DateTime.parse(j['start'] as String),
+        durationSec: (j['durationSec'] ?? 0) as int,
       );
 }
 

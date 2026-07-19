@@ -15,6 +15,7 @@ class MedicinesScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Medicines')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'medicines_fab',
         onPressed: () => _openEditor(context),
         icon: const Icon(Icons.add),
         label: const Text('Add medicine'),

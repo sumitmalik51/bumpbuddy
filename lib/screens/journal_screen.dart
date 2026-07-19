@@ -17,6 +17,7 @@ class JournalScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Symptom journal')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'journal_fab',
         onPressed: () => _openEditor(context),
         icon: const Icon(Icons.add),
         label: const Text('Log symptom'),

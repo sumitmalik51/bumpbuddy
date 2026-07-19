@@ -6,6 +6,7 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'models.dart';
+import 'pregnancy_math.dart';
 
 /// Local notifications for medicine slots and appointment reminders.
 /// No-op on web (plugin unsupported there).
@@ -100,6 +101,33 @@ class NotificationService {
         );
       }
     }
+  }
+
+  /// Daily 8pm kick-count reminder from week 28 until delivery.
+  Future<void> syncKickReminder(PregnancyProfile? profile, bool enabled) async {
+    if (kIsWeb || !_ready) return;
+    await _plugin.cancel(id: _id('kick_reminder'));
+    if (profile == null || profile.delivered || !enabled) return;
+    final week = PregnancyMath.gaWeeks(profile);
+    if (week < 28 || week > 43) return;
+    await _plugin.zonedSchedule(
+      id: _id('kick_reminder'),
+      title: profile.isTwins ? 'Kick check — both babies' : 'Kick check',
+      body: profile.isTwins
+          ? 'A good time to count kicks for each twin.'
+          : 'A good time for your daily count-to-10.',
+      scheduledDate: _nextDaily(20, 0),
+      notificationDetails: const NotificationDetails(android: _medChannel),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+      payload: 'kick',
+    );
+  }
+
+  /// Babies arrived — silence everything pregnancy-related.
+  Future<void> cancelAll() async {
+    if (kIsWeb || !_ready) return;
+    await _plugin.cancelAll();
   }
 
   /// Cancels and re-creates appointment reminders (24h before, 9am rule:

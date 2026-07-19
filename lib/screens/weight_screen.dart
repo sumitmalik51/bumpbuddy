@@ -18,6 +18,7 @@ class WeightScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Weight tracker')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'weight_fab',
         onPressed: () => _addEntry(context, store),
         icon: const Icon(Icons.add),
         label: const Text('Log weight'),

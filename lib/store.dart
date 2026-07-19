@@ -21,6 +21,9 @@ class AppStore extends ChangeNotifier {
   static const _kWater = 'water'; // map yyyy-mm-dd -> glasses
   static const _kMedsTaken = 'medsTaken'; // map yyyy-mm-dd -> ["medId|slot"]
   static const _kKicks = 'kickSessions';
+  static const _kBp = 'bpEntries';
+  static const _kContractions = 'contractions';
+  static const _kKickReminder = 'kickReminderEnabled';
 
   SharedPreferences? _prefs;
   bool loaded = false;
@@ -33,6 +36,9 @@ class AppStore extends ChangeNotifier {
   List<WeightEntry> weights = [];
   List<ChecklistItem> bagItems = [];
   List<KickSession> kickSessions = [];
+  List<BpEntry> bpEntries = [];
+  List<Contraction> contractions = [];
+  bool kickReminderEnabled = true;
   Map<String, int> water = {};
   Map<String, List<String>> medsTaken = {};
 
@@ -59,6 +65,9 @@ class AppStore extends ChangeNotifier {
     weights = _readList(_kWeights, WeightEntry.fromJson);
     bagItems = _readList(_kBag, ChecklistItem.fromJson);
     kickSessions = _readList(_kKicks, KickSession.fromJson);
+    bpEntries = _readList(_kBp, BpEntry.fromJson);
+    contractions = _readList(_kContractions, Contraction.fromJson);
+    kickReminderEnabled = p.getBool(_kKickReminder) ?? true;
     water = ((jsonDecode(p.getString(_kWater) ?? '{}')) as Map<String, dynamic>)
         .map((k, v) => MapEntry(k, v as int));
     medsTaken =
@@ -247,6 +256,135 @@ class AppStore extends ChangeNotifier {
   Future<void> setWaterToday(int glasses) async {
     water[dayKey(DateTime.now())] = glasses.clamp(0, 30);
     await _prefs!.setString(_kWater, jsonEncode(water));
+    notifyListeners();
+  }
+
+  // ---- Blood pressure ----
+
+  Future<void> addBp(BpEntry e) async {
+    bpEntries.add(e);
+    bpEntries.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+    await _writeList(_kBp, bpEntries);
+    notifyListeners();
+  }
+
+  Future<void> deleteBp(String id) async {
+    bpEntries.removeWhere((e) => e.id == id);
+    await _writeList(_kBp, bpEntries);
+    notifyListeners();
+  }
+
+  // ---- Contractions ----
+
+  Future<void> upsertContraction(Contraction c) async {
+    final i = contractions.indexWhere((x) => x.id == c.id);
+    if (i >= 0) {
+      contractions[i] = c;
+    } else {
+      contractions.add(c);
+    }
+    contractions.sort((a, b) => b.start.compareTo(a.start));
+    // Keep the log bounded — labour monitoring only needs recent history.
+    if (contractions.length > 200) {
+      contractions = contractions.take(200).toList();
+    }
+    await _writeList(_kContractions, contractions);
+    notifyListeners();
+  }
+
+  Future<void> deleteContraction(String id) async {
+    contractions.removeWhere((c) => c.id == id);
+    await _writeList(_kContractions, contractions);
+    notifyListeners();
+  }
+
+  Future<void> clearContractions() async {
+    contractions = [];
+    await _writeList(_kContractions, contractions);
+    notifyListeners();
+  }
+
+  // ---- Kick reminder preference ----
+
+  Future<void> setKickReminder(bool enabled) async {
+    kickReminderEnabled = enabled;
+    await _prefs!.setBool(_kKickReminder, enabled);
+    notifyListeners();
+  }
+
+  // ---- Backup / restore ----
+
+  /// Everything the app knows, as one JSON document.
+  Map<String, dynamic> exportAll() => {
+        'app': 'BumpBuddy',
+        'backupVersion': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'profile': profile?.toJson(),
+        'symptoms': symptoms.map((e) => e.toJson()).toList(),
+        'medicines': medicines.map((e) => e.toJson()).toList(),
+        'appointments': appointments.map((e) => e.toJson()).toList(),
+        'records': records.map((e) => e.toJson()).toList(),
+        'weights': weights.map((e) => e.toJson()).toList(),
+        'bag': bagItems.map((e) => e.toJson()).toList(),
+        'kickSessions': kickSessions.map((e) => e.toJson()).toList(),
+        'bpEntries': bpEntries.map((e) => e.toJson()).toList(),
+        'contractions': contractions.map((e) => e.toJson()).toList(),
+        'water': water,
+        'medsTaken': medsTaken,
+        'kickReminderEnabled': kickReminderEnabled,
+      };
+
+  /// Replaces ALL current data with [data] (a previously exported backup).
+  /// Attachment files are not part of the backup — only their metadata.
+  Future<void> importAll(Map<String, dynamic> data) async {
+    if (data['app'] != 'BumpBuddy') {
+      throw const FormatException('Not a BumpBuddy backup file.');
+    }
+    List<T> read<T>(String key, T Function(Map<String, dynamic>) f) =>
+        ((data[key] ?? []) as List)
+            .map((e) => f((e as Map).cast<String, dynamic>()))
+            .toList();
+
+    profile = data['profile'] == null
+        ? null
+        : PregnancyProfile.fromJson(
+            (data['profile'] as Map).cast<String, dynamic>());
+    symptoms = read(_kSymptoms, SymptomEntry.fromJson);
+    medicines = read(_kMedicines, Medicine.fromJson);
+    appointments = read(_kAppointments, Appointment.fromJson);
+    records = read(_kRecords, RecordItem.fromJson);
+    weights = read(_kWeights, WeightEntry.fromJson);
+    bagItems = read(_kBag, ChecklistItem.fromJson);
+    kickSessions = read(_kKicks, KickSession.fromJson);
+    bpEntries = read(_kBp, BpEntry.fromJson);
+    contractions = read(_kContractions, Contraction.fromJson);
+    water = ((data['water'] ?? {}) as Map)
+        .map((k, v) => MapEntry(k as String, (v as num).toInt()));
+    medsTaken = ((data['medsTaken'] ?? {}) as Map).map(
+        (k, v) => MapEntry(k as String, (v as List).cast<String>()));
+    kickReminderEnabled = (data['kickReminderEnabled'] ?? true) as bool;
+
+    final p = _prefs!;
+    if (profile != null) {
+      await p.setString(_kProfile, jsonEncode(profile!.toJson()));
+    } else {
+      await p.remove(_kProfile);
+    }
+    await _writeList(_kSymptoms, symptoms);
+    await _writeList(_kMedicines, medicines);
+    await _writeList(_kAppointments, appointments);
+    await _writeList(_kRecords, records);
+    await _writeList(_kWeights, weights);
+    await _writeList(_kBag, bagItems);
+    await _writeList(_kKicks, kickSessions);
+    await _writeList(_kBp, bpEntries);
+    await _writeList(_kContractions, contractions);
+    await p.setString(_kWater, jsonEncode(water));
+    await p.setString(_kMedsTaken, jsonEncode(medsTaken));
+    await p.setBool(_kKickReminder, kickReminderEnabled);
+
+    await NotificationService.instance.syncMedicines(medicines);
+    await NotificationService.instance.syncAppointments(appointments);
     notifyListeners();
   }
 

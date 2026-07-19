@@ -12,8 +12,14 @@ Future<void> main() async {
   await NotificationService.instance.init();
   await store.load();
   // Re-sync schedules on every launch so reminders survive reboots.
-  await NotificationService.instance.syncMedicines(store.medicines);
-  await NotificationService.instance.syncAppointments(store.appointments);
+  if (store.profile?.delivered == true) {
+    await NotificationService.instance.cancelAll();
+  } else {
+    await NotificationService.instance.syncMedicines(store.medicines);
+    await NotificationService.instance.syncAppointments(store.appointments);
+    await NotificationService.instance
+        .syncKickReminder(store.profile, store.kickReminderEnabled);
+  }
   runApp(BumpBuddyApp(store: store));
 }
 

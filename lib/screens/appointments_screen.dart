@@ -22,6 +22,7 @@ class AppointmentsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Appointments')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'appointments_fab',
         onPressed: () => _openEditor(context),
         icon: const Icon(Icons.add),
         label: const Text('Add'),

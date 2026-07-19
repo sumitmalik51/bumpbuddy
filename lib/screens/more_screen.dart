@@ -1,12 +1,21 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../doctor_summary.dart';
 import '../models.dart';
+import '../notification_service.dart';
 import '../store.dart';
 import '../weekly_content.dart';
 import 'ai_settings_screen.dart';
 import 'appointments_screen.dart';
+import 'bp_screen.dart';
+import 'contraction_timer_screen.dart';
 import 'edit_profile_screen.dart';
 import 'growth_screen.dart';
 import 'hospital_bag_screen.dart';
@@ -157,8 +166,118 @@ class MoreScreen extends StatelessWidget {
               const KickCounterScreen()),
           _navTile(context, Icons.show_chart, 'Growth',
               'Scan-over-scan weight curves', const GrowthScreen()),
+          _navTile(context, Icons.timer_outlined, 'Contraction timer',
+              '5-1-1 pattern awareness for labour', const ContractionTimerScreen()),
+          _navTile(context, Icons.favorite_outline, 'Blood pressure',
+              'Home & clinic readings, high-reading flags', const BpScreen()),
           _navTile(context, Icons.auto_awesome_outlined, 'AI scan reading',
               'Connect your Azure AI deployment', const AiSettingsScreen()),
+          SwitchListTile(
+            secondary: CircleAvatar(
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.notifications_active_outlined,
+                  color: scheme.primary),
+            ),
+            title: const Text('Daily kick reminder'),
+            subtitle: const Text('8 pm, from week 28'),
+            value: store.kickReminderEnabled,
+            onChanged: (v) async {
+              await store.setKickReminder(v);
+              await NotificationService.instance.syncKickReminder(p, v);
+            },
+          ),
+          const SizedBox(height: 16),
+          Card(
+            color: scheme.surfaceContainerHigh,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    child: Icon(Icons.ios_share, color: scheme.primary),
+                  ),
+                  title: const Text('Share doctor summary'),
+                  subtitle: const Text(
+                      'Latest scan, weight, BP & meds as text'),
+                  onTap: () =>
+                      SharePlus.instance.share(ShareParams(
+                          text: buildDoctorSummary(store),
+                          subject: 'Pregnancy summary')),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    child: Icon(Icons.backup_outlined, color: scheme.primary),
+                  ),
+                  title: const Text('Export backup'),
+                  subtitle: const Text(
+                      'All data as a file — keep it somewhere safe'),
+                  onTap: () async {
+                    final json = const JsonEncoder.withIndent('  ')
+                        .convert(store.exportAll());
+                    await SharePlus.instance.share(ShareParams(files: [
+                      XFile.fromData(
+                        Uint8List.fromList(utf8.encode(json)),
+                        name:
+                            'bumpbuddy-backup-${DateFormat('yyyy-MM-dd').format(DateTime.now())}.json',
+                        mimeType: 'application/json',
+                      ),
+                    ]));
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    child: Icon(Icons.restore, color: scheme.primary),
+                  ),
+                  title: const Text('Restore backup'),
+                  subtitle:
+                      const Text('Replaces everything with a backup file'),
+                  onTap: () => _restoreBackup(context, store),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (!p.delivered)
+            Card(
+              color: scheme.tertiaryContainer,
+              child: ListTile(
+                leading: const Text('🎉', style: TextStyle(fontSize: 24)),
+                title: Text(
+                    p.isTwins ? 'The babies have arrived!' : 'Baby has arrived!',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onTertiaryContainer)),
+                subtitle: Text('Tap to switch off pregnancy reminders',
+                    style: TextStyle(color: scheme.onTertiaryContainer)),
+                onTap: () => _markDelivered(context, store, p),
+              ),
+            )
+          else
+            Card(
+              color: scheme.surfaceContainerHigh,
+              child: ListTile(
+                leading: const Text('🎉', style: TextStyle(fontSize: 24)),
+                title: Text(
+                    'Delivered${p.deliveredAt != null ? ' on ${DateFormat('d MMM yyyy').format(p.deliveredAt!)}' : ''}'),
+                subtitle: const Text('Records and growth history stay available'),
+                trailing: TextButton(
+                  onPressed: () async {
+                    p.delivered = false;
+                    p.deliveredAt = null;
+                    await store.saveProfile(p);
+                    await NotificationService.instance
+                        .syncMedicines(store.medicines);
+                    await NotificationService.instance
+                        .syncAppointments(store.appointments);
+                  },
+                  child: const Text('Undo'),
+                ),
+              ),
+            ),
           const SizedBox(height: 16),
           Card(
             color: scheme.errorContainer,
@@ -243,6 +362,70 @@ class MoreScreen extends StatelessWidget {
             .push(MaterialPageRoute(builder: (_) => screen)),
       ),
     );
+  }
+
+  Future<void> _restoreBackup(BuildContext context, AppStore store) async {
+    final messenger = ScaffoldMessenger.of(context);
+    const group = XTypeGroup(
+        label: 'BumpBuddy backup',
+        extensions: ['json'],
+        mimeTypes: ['application/json']);
+    final file = await openFile(acceptedTypeGroups: const [group]);
+    if (file == null) return;
+    if (!context.mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore this backup?'),
+        content: const Text(
+            'Everything currently in the app will be REPLACED by the backup. This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Replace everything')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final data =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      await store.importAll(data);
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Backup restored.')));
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Could not restore: $e')));
+    }
+  }
+
+  Future<void> _markDelivered(
+      BuildContext context, AppStore store, PregnancyProfile p) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(p.isTwins ? 'Babies have arrived? 🎉' : 'Baby has arrived? 🎉'),
+        content: const Text(
+            'Congratulations! This stops medicine, appointment and kick reminders. '
+            'All your records, growth charts and history stay right here.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Not yet')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Yes! 🎉')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    p.delivered = true;
+    p.deliveredAt = DateTime.now();
+    await store.saveProfile(p);
+    await NotificationService.instance.cancelAll();
   }
 
   void _confirmReset(BuildContext context, AppStore store) {

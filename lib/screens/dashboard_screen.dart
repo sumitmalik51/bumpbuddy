@@ -6,6 +6,7 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
+import 'contraction_timer_screen.dart';
 import 'growth_screen.dart';
 import 'kick_counter_screen.dart';
 import 'scan_read_screen.dart';
@@ -22,6 +23,10 @@ class DashboardScreen extends StatelessWidget {
     final info = WeeklyContent.forWeek(week);
     final guidance = PregnancyMath.deliveryGuidance(p);
     final scheme = Theme.of(context).colorScheme;
+
+    if (p.delivered) {
+      return _deliveredView(context, p);
+    }
 
     final cards = <Widget>[
       _header(context, p, guidance.window),
@@ -45,6 +50,23 @@ class DashboardScreen extends StatelessWidget {
       ),
       const SizedBox(height: 16),
       _kickCard(context, store, p),
+      if (week >= 30) ...[
+        const SizedBox(height: 16),
+        Card(
+          color: scheme.surfaceContainerHigh,
+          child: ListTile(
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const ContractionTimerScreen())),
+            leading: CircleAvatar(
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.timer_outlined, color: scheme.primary),
+            ),
+            title: const Text('Contraction timer'),
+            subtitle: const Text('Times each one, watches for the 5-1-1 pattern'),
+            trailing: const Icon(Icons.chevron_right),
+          ),
+        ),
+      ],
       const SizedBox(height: 24),
       Center(
         child: Text(
@@ -63,6 +85,79 @@ class DashboardScreen extends StatelessWidget {
           children: [
             for (var i = 0; i < cards.length; i++)
               _StaggeredEntrance(index: i ~/ 2, child: cards[i]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _deliveredView(BuildContext context, PregnancyProfile p) {
+    final scheme = Theme.of(context).colorScheme;
+    final names = p.babies.map((b) => b.displayName).join(' & ');
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [scheme.primaryContainer, scheme.tertiaryContainer],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                children: [
+                  const Text('🎉', style: TextStyle(fontSize: 48)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Welcome to the world, $names!',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: scheme.onPrimaryContainer,
+                        fontWeight: FontWeight.bold),
+                  ),
+                  if (p.deliveredAt != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Born ${DateFormat('d MMMM yyyy').format(p.deliveredAt!)}',
+                      style: TextStyle(color: scheme.onPrimaryContainer),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              color: scheme.surfaceContainerHigh,
+              child: ListTile(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const GrowthScreen())),
+                leading: CircleAvatar(
+                  backgroundColor: scheme.tertiaryContainer,
+                  child:
+                      Icon(Icons.show_chart, color: scheme.onTertiaryContainer),
+                ),
+                title: const Text('Pregnancy growth history'),
+                subtitle: const Text('All scans and curves, kept safe'),
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              color: scheme.secondaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Pregnancy reminders are off. Your records, journal and growth charts stay in their tabs — take them along to paediatric visits.',
+                  style: TextStyle(
+                      fontSize: 13, color: scheme.onSecondaryContainer),
+                ),
+              ),
+            ),
           ],
         ),
       ),
