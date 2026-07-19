@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
@@ -55,13 +55,14 @@ class Attachments {
   static Future<({String fileName, String filePath})?> fromFiles(
       String recordId) async {
     if (!supported) return null;
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+    const group = XTypeGroup(
+      label: 'Reports',
+      extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+      mimeTypes: ['application/pdf', 'image/*'],
     );
-    final f = result?.files.single;
-    if (f == null || f.path == null) return null;
-    return _copyIn(f.path!, f.name, recordId);
+    final f = await openFile(acceptedTypeGroups: const [group]);
+    if (f == null) return null;
+    return _copyIn(f.path, f.name, recordId);
   }
 
   /// Open an attachment with the system viewer (PDFs etc.).
