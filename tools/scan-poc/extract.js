@@ -179,6 +179,7 @@ const OUTPUT_SCHEMA = {
     "gestational_age_on_report",
     "twins_detected",
     "babies",
+    "printed_efw_discordance_percent",
     "impression",
     "flags",
     "confidence_notes",
@@ -202,6 +203,11 @@ const OUTPUT_SCHEMA = {
       type: "array",
       description: "One entry per fetus documented on the report, in document order.",
       items: BABY_SCHEMA,
+    },
+    printed_efw_discordance_percent: {
+      type: ["number", "null"],
+      description:
+        "EFW discordance percentage AS PRINTED on the report (e.g. in a fetal weight calculation box: 'EFW discordance 16.3 %'). Transcription only — never compute this yourself. Null if the report does not print one.",
     },
     impression: {
       type: ["string", "null"],
@@ -237,6 +243,8 @@ Non-negotiable rules:
 5. INDIAN RADIOLOGY CONVENTIONS are common: EFW usually in grams, sometimes with a tolerance or range ("1897 +/- 277 gm") — use the central value for efw_grams and keep the full text in efw_raw. Biometry tables often show a measurement column AND a week-equivalent column — extract the measurement, and use *_raw only if the measurement column is missing or unreadable. "Liquor" means amniotic fluid. Placental grading appears as Grade 0-III (or 1-3).
 6. TWIN LABELS. Babies may be labelled "Twin A/Twin B", "Fetus 1/Fetus 2", "F1/F2", "Baby A/Baby B", or similar. Normalize to "A", "B", "C"... in document order (Twin A / Fetus 1 / F1 -> "A"). Set twins_detected to true only if the report clearly documents more than one fetus. Never invent a second fetus.
 7. FLAGS are short, factual, and derived only from what the report documents or from data-quality issues (e.g. "AFI recorded for only one fetus", "biometry table partially cut off"). No advice, no severity judgements.
+8. MULTI-FETUS COMPLETENESS. Twin reports repeat an identical table or block per fetus — commonly stacked vertically (Fetus 1's table directly above Fetus 2's) or in consecutive sections; a photo may also begin mid-way through one fetus's section. Extract EVERY fetus's values with equal care. Before finalizing, self-check: if twins_detected is true but one fetus has all-null biometry while another is fully populated, RE-EXAMINE the image for the sparse fetus's table or block — it is usually present and just as legible as the first. Attribute each clinical value (FHR, presentation, placenta, amniotic fluid) to the fetus in whose labelled section it is printed — never attach the first values you encounter to Fetus A by default. If attribution is genuinely unclear, leave the field null and record the ambiguity in flags.
+9. STRUCTURE/FLAGS CONSISTENCY. Never mention a numeric value in flags or confidence_notes (for example a printed discordance percentage or an EFW) while leaving the corresponding structured field null. If it is legible enough to mention, it is legible enough to extract.
 
 Your entire output must conform to the provided JSON schema.`;
 
@@ -247,8 +255,9 @@ Steps:
 1. Read the report header for the scan/report date and the stated gestational age.
 2. Identify how many fetuses the report documents and their labels.
 3. For each fetus, extract: presentation, EFW, HC, AC, FL, BPD, FHR, placenta location and grade, liquor/AFI, DVP, and umbilical artery Doppler findings — normalizing units per the system rules and using the *_raw fields for verbatim text whenever a value is ambiguous, ranged, or week-based.
-4. Transcribe the report's impression/conclusion section if present.
-5. Record any documented notable findings or data-quality problems in "flags", and explain every null / low-confidence field in "confidence_notes".`;
+4. If the report prints an EFW discordance percentage, transcribe it into printed_efw_discordance_percent.
+5. Transcribe the report's impression/conclusion section if present.
+6. Record any documented notable findings or data-quality problems in "flags", and explain every null / low-confidence field in "confidence_notes".`;
 
   if (twinsHint) {
     prompt += `

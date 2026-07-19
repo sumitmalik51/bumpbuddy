@@ -240,6 +240,7 @@ class RecordItem {
   String notes;
   String fileName; // original attachment name
   String filePath; // copy inside the app's documents dir (mobile only)
+  String aiJson; // AI extraction result (scan reader), empty if not run
 
   RecordItem({
     required this.id,
@@ -249,6 +250,7 @@ class RecordItem {
     this.notes = '',
     this.fileName = '',
     this.filePath = '',
+    this.aiJson = '',
   });
 
   bool get hasAttachment => filePath.isNotEmpty;
@@ -269,6 +271,7 @@ class RecordItem {
         'notes': notes,
         'fileName': fileName,
         'filePath': filePath,
+        'aiJson': aiJson,
       };
 
   factory RecordItem.fromJson(Map<String, dynamic> j) => RecordItem(
@@ -279,6 +282,7 @@ class RecordItem {
         notes: (j['notes'] ?? '') as String,
         fileName: (j['fileName'] ?? '') as String,
         filePath: (j['filePath'] ?? '') as String,
+        aiJson: (j['aiJson'] ?? '') as String,
       );
 }
 

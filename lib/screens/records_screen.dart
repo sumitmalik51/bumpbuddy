@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../ai/ai_config.dart';
+import '../ai/scan_reader.dart';
 import '../attachments.dart';
 import '../models.dart';
 import '../store.dart';
@@ -114,7 +117,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                 ),
                           title: Text(r.title),
                           subtitle: Text([
-                            '${r.category.label} · ${DateFormat('d MMM yyyy').format(r.date)}',
+                            '${r.category.label} · ${DateFormat('d MMM yyyy').format(r.date)}'
+                                '${r.aiJson.isNotEmpty ? ' · ✦ AI read' : ''}',
                             if (r.fileName.isNotEmpty) r.fileName,
                             if (r.notes.isNotEmpty) r.notes,
                           ].join('\n')),
@@ -153,6 +157,118 @@ class _RecordsScreenState extends State<RecordsScreen> {
   }
 }
 
+class _AiResultSummary extends StatelessWidget {
+  final String aiJson;
+  const _AiResultSummary({required this.aiJson});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Map<String, dynamic> r;
+    try {
+      r = jsonDecode(aiJson) as Map<String, dynamic>;
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+    final babies =
+        ((r['babies'] ?? []) as List).cast<Map<String, dynamic>>();
+    final derived = (r['derived'] ?? {}) as Map<String, dynamic>;
+    // Prefer our own computed discordance; fall back to the value the
+    // report itself prints when we could not compute one.
+    final computed = derived['efw_discordance_percent'];
+    final printed = r['printed_efw_discordance_percent'];
+    final pct = computed ?? printed;
+    final significant = computed != null
+        ? derived['efw_discordance_clinically_significant'] == true
+        : (printed is num && printed >= 20);
+
+    String fmt(dynamic v, String unit) => v == null ? '—' : '$v $unit';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 16, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                'AI reading · ${r['gestational_age_on_report'] ?? r['report_date'] ?? ''}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final b in babies) ...[
+            Text('Baby ${b['label']}'
+                '${b['presentation'] != null ? ' · ${b['presentation']}' : ''}',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: scheme.primary)),
+            Padding(
+              padding: const EdgeInsets.only(left: 8, top: 2, bottom: 6),
+              child: Text(
+                'EFW ${fmt(b['efw_grams'], 'g')} · HC ${fmt(b['hc_mm'], 'mm')} · '
+                'AC ${fmt(b['ac_mm'], 'mm')} · FL ${fmt(b['fl_mm'], 'mm')} · '
+                'FHR ${fmt(b['fhr_bpm'], 'bpm')}\n'
+                'Placenta: ${b['placenta'] ?? '—'}'
+                '${b['placenta_grade'] != null ? ' (${b['placenta_grade']})' : ''} · '
+                'Fluid: ${b['liquor_afi_cm'] != null ? 'AFI ${b['liquor_afi_cm']} cm' : b['dvp_cm'] != null ? 'DVP ${b['dvp_cm']} cm' : '—'}',
+                style: const TextStyle(fontSize: 12.5, height: 1.5),
+              ),
+            ),
+          ],
+          if (pct != null)
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: significant
+                    ? scheme.errorContainer
+                    : scheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Twin weight difference: $pct%'
+                '${significant ? ' — worth discussing with your doctor' : ' (below the 20% attention level)'}',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: significant
+                      ? scheme.onErrorContainer
+                      : scheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+          if (r['confidence_notes'] != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Note: ${r['confidence_notes']}',
+                  style: TextStyle(
+                      fontSize: 11.5, color: scheme.onSurfaceVariant)),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Extracted from the report photo — verify against the original. Not medical advice.',
+              style:
+                  TextStyle(fontSize: 11, color: scheme.outline),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RecordEditor extends StatefulWidget {
   final RecordItem? existing;
   const _RecordEditor({this.existing});
@@ -168,6 +284,8 @@ class _RecordEditorState extends State<_RecordEditor> {
   late DateTime _date;
   late String _fileName;
   late String _filePath;
+  late String _aiJson;
+  bool _aiRunning = false;
   late final String _recordId;
 
   @override
@@ -180,8 +298,53 @@ class _RecordEditorState extends State<_RecordEditor> {
     _date = e?.date ?? DateTime.now();
     _fileName = e?.fileName ?? '';
     _filePath = e?.filePath ?? '';
+    _aiJson = e?.aiJson ?? '';
     _recordId = e?.id ?? context.read<AppStore>().newId();
     _title.addListener(() => setState(() {}));
+  }
+
+  static bool _isImagePath(String p) {
+    final n = p.toLowerCase();
+    return n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.png') ||
+        n.endsWith('.webp');
+  }
+
+  Future<void> _readWithAi() async {
+    final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final config = await AiConfigStore.load();
+    if (!config.isComplete) {
+      messenger.showSnackBar(const SnackBar(
+        content:
+            Text('Set up your Azure connection first: More → AI scan reading'),
+      ));
+      return;
+    }
+    setState(() => _aiRunning = true);
+    try {
+      final result = await ScanReader.extract(
+        config: config,
+        image: File(_filePath),
+        twinsHint: store.profile?.isTwins ?? false,
+      );
+      if (!mounted) return;
+      setState(() {
+        _aiJson = jsonEncode(result);
+        _aiRunning = false;
+      });
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Scan read — review the values below, then Save.')));
+    } on ScanReaderException catch (e) {
+      if (!mounted) return;
+      setState(() => _aiRunning = false);
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _aiRunning = false);
+      messenger.showSnackBar(SnackBar(content: Text('AI reading failed: $e')));
+    }
   }
 
   Future<void> _attach(
@@ -319,6 +482,30 @@ class _RecordEditorState extends State<_RecordEditor> {
                     },
                   ),
                 ),
+              if (_filePath.isNotEmpty &&
+                  _category == RecordCategory.ultrasound &&
+                  _isImagePath(_filePath)) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: _aiRunning ? null : _readWithAi,
+                    icon: _aiRunning
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_awesome, size: 18),
+                    label: Text(_aiRunning
+                        ? 'Reading scan… (can take a minute)'
+                        : (_aiJson.isEmpty
+                            ? 'Read with AI'
+                            : 'Re-read with AI')),
+                  ),
+                ),
+                if (_aiJson.isNotEmpty)
+                  _AiResultSummary(aiJson: _aiJson),
+              ],
             ] else
               Text(
                 'Photo/PDF attachments work in the mobile app.',
@@ -341,6 +528,7 @@ class _RecordEditorState extends State<_RecordEditor> {
                           notes: _notes.text.trim(),
                           fileName: _fileName,
                           filePath: _filePath,
+                          aiJson: _aiJson,
                         ));
                         Navigator.pop(context);
                       },
