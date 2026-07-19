@@ -238,7 +238,8 @@ class RecordItem {
   RecordCategory category;
   String title;
   String notes;
-  String fileName; // attachment name; binary storage lands with the mobile build
+  String fileName; // original attachment name
+  String filePath; // copy inside the app's documents dir (mobile only)
 
   RecordItem({
     required this.id,
@@ -247,7 +248,18 @@ class RecordItem {
     required this.title,
     this.notes = '',
     this.fileName = '',
+    this.filePath = '',
   });
+
+  bool get hasAttachment => filePath.isNotEmpty;
+
+  bool get isImageAttachment {
+    final n = (fileName.isNotEmpty ? fileName : filePath).toLowerCase();
+    return n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.png') ||
+        n.endsWith('.webp');
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -256,6 +268,7 @@ class RecordItem {
         'title': title,
         'notes': notes,
         'fileName': fileName,
+        'filePath': filePath,
       };
 
   factory RecordItem.fromJson(Map<String, dynamic> j) => RecordItem(
@@ -265,6 +278,7 @@ class RecordItem {
         title: j['title'] as String,
         notes: (j['notes'] ?? '') as String,
         fileName: (j['fileName'] ?? '') as String,
+        filePath: (j['filePath'] ?? '') as String,
       );
 }
 
@@ -282,6 +296,45 @@ class WeightEntry {
         id: j['id'] as String,
         date: DateTime.parse(j['date'] as String),
         kg: (j['kg'] as num).toDouble(),
+      );
+}
+
+class KickSession {
+  final String id;
+  final String babyLabel; // 'A' or 'B'
+  final DateTime start;
+  List<DateTime> kicks;
+  bool ended;
+
+  KickSession({
+    required this.id,
+    required this.babyLabel,
+    required this.start,
+    List<DateTime>? kicks,
+    this.ended = false,
+  }) : kicks = kicks ?? [];
+
+  /// Minutes from start to the 10th kick (the "count to 10" metric).
+  int? get minutesToTen => kicks.length >= 10
+      ? kicks[9].difference(start).inMinutes
+      : null;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'babyLabel': babyLabel,
+        'start': start.toIso8601String(),
+        'kicks': kicks.map((k) => k.toIso8601String()).toList(),
+        'ended': ended,
+      };
+
+  factory KickSession.fromJson(Map<String, dynamic> j) => KickSession(
+        id: j['id'] as String,
+        babyLabel: (j['babyLabel'] ?? 'A') as String,
+        start: DateTime.parse(j['start'] as String),
+        kicks: ((j['kicks'] ?? []) as List)
+            .map((k) => DateTime.parse(k as String))
+            .toList(),
+        ended: (j['ended'] ?? false) as bool,
       );
 }
 

@@ -8,6 +8,7 @@ import '../weekly_content.dart';
 import 'appointments_screen.dart';
 import 'edit_profile_screen.dart';
 import 'hospital_bag_screen.dart';
+import 'kick_counter_screen.dart';
 import 'medicines_screen.dart';
 import 'weight_screen.dart';
 
@@ -146,6 +147,12 @@ class MoreScreen extends StatelessWidget {
               const HospitalBagScreen()),
           _navTile(context, Icons.monitor_weight_outlined, 'Weight tracker',
               'Your weight over the weeks', const WeightScreen()),
+          _navTile(
+              context,
+              Icons.touch_app_outlined,
+              'Kick counter',
+              p.isTwins ? 'Count to 10 — per baby' : 'Count to 10 sessions',
+              const KickCounterScreen()),
           const SizedBox(height: 16),
           Card(
             color: scheme.errorContainer,

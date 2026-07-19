@@ -6,6 +6,7 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
+import 'kick_counter_screen.dart';
 import 'weight_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -42,6 +43,8 @@ class DashboardScreen extends StatelessWidget {
                 Expanded(child: _weightCard(context, store)),
               ],
             ),
+            const SizedBox(height: 16),
+            _kickCard(context, store, p),
             const SizedBox(height: 24),
             Center(
               child: Text(
@@ -341,6 +344,47 @@ class DashboardScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _kickCard(BuildContext context, AppStore store, PregnancyProfile p) {
+    final scheme = Theme.of(context).colorScheme;
+    final week = PregnancyMath.gaWeeks(p);
+    final todaySessions = store.kickSessions
+        .where((s) =>
+            AppStore.dayKey(s.start) == AppStore.dayKey(DateTime.now()))
+        .toList();
+    final String subtitle;
+    if (todaySessions.isEmpty) {
+      subtitle = week >= 28
+          ? 'No session today yet — daily counting matters from 28 weeks'
+          : 'Track movements once kicks are regular';
+    } else if (p.isTwins) {
+      final labels = todaySessions.map((s) => s.babyLabel).toSet();
+      subtitle =
+          'Today: ${todaySessions.length} session(s) · ${labels.map((l) => 'Baby $l').join(' & ')}';
+    } else {
+      final best = todaySessions
+          .map((s) => s.minutesToTen)
+          .whereType<int>()
+          .fold<int?>(null, (a, b) => a == null || b < a ? b : a);
+      subtitle = best != null
+          ? 'Today: 10 kicks in $best min'
+          : 'Today: ${todaySessions.length} session(s)';
+    }
+    return Card(
+      color: scheme.surfaceContainerHigh,
+      child: ListTile(
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const KickCounterScreen())),
+        leading: CircleAvatar(
+          backgroundColor: scheme.primaryContainer,
+          child: Icon(Icons.touch_app_outlined, color: scheme.primary),
+        ),
+        title: const Text('Kick counter'),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'notification_service.dart';
 import 'screens/home_shell.dart';
 import 'screens/setup_screen.dart';
 import 'store.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final store = AppStore();
-  store.load();
+  await NotificationService.instance.init();
+  await store.load();
+  // Re-sync schedules on every launch so reminders survive reboots.
+  await NotificationService.instance.syncMedicines(store.medicines);
+  await NotificationService.instance.syncAppointments(store.appointments);
   runApp(BumpBuddyApp(store: store));
 }
 

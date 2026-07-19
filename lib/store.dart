@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'attachments.dart';
 import 'models.dart';
+import 'notification_service.dart';
 
 /// Local-first app store. Everything is JSON in shared_preferences behind
 /// this single ChangeNotifier, so the storage engine can be swapped for
@@ -18,6 +20,7 @@ class AppStore extends ChangeNotifier {
   static const _kBag = 'bag';
   static const _kWater = 'water'; // map yyyy-mm-dd -> glasses
   static const _kMedsTaken = 'medsTaken'; // map yyyy-mm-dd -> ["medId|slot"]
+  static const _kKicks = 'kickSessions';
 
   SharedPreferences? _prefs;
   bool loaded = false;
@@ -29,6 +32,7 @@ class AppStore extends ChangeNotifier {
   List<RecordItem> records = [];
   List<WeightEntry> weights = [];
   List<ChecklistItem> bagItems = [];
+  List<KickSession> kickSessions = [];
   Map<String, int> water = {};
   Map<String, List<String>> medsTaken = {};
 
@@ -54,6 +58,7 @@ class AppStore extends ChangeNotifier {
     records = _readList(_kRecords, RecordItem.fromJson);
     weights = _readList(_kWeights, WeightEntry.fromJson);
     bagItems = _readList(_kBag, ChecklistItem.fromJson);
+    kickSessions = _readList(_kKicks, KickSession.fromJson);
     water = ((jsonDecode(p.getString(_kWater) ?? '{}')) as Map<String, dynamic>)
         .map((k, v) => MapEntry(k, v as int));
     medsTaken =
@@ -134,12 +139,14 @@ class AppStore extends ChangeNotifier {
       medicines.add(m);
     }
     await _writeList(_kMedicines, medicines);
+    await NotificationService.instance.syncMedicines(medicines);
     notifyListeners();
   }
 
   Future<void> deleteMedicine(String id) async {
     medicines.removeWhere((m) => m.id == id);
     await _writeList(_kMedicines, medicines);
+    await NotificationService.instance.syncMedicines(medicines);
     notifyListeners();
   }
 
@@ -171,12 +178,14 @@ class AppStore extends ChangeNotifier {
     }
     appointments.sort((x, y) => x.dateTime.compareTo(y.dateTime));
     await _writeList(_kAppointments, appointments);
+    await NotificationService.instance.syncAppointments(appointments);
     notifyListeners();
   }
 
   Future<void> deleteAppointment(String id) async {
     appointments.removeWhere((a) => a.id == id);
     await _writeList(_kAppointments, appointments);
+    await NotificationService.instance.syncAppointments(appointments);
     notifyListeners();
   }
 
@@ -205,7 +214,11 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> deleteRecord(String id) async {
-    records.removeWhere((r) => r.id == id);
+    final i = records.indexWhere((r) => r.id == id);
+    if (i >= 0) {
+      await Attachments.delete(records[i].filePath);
+      records.removeAt(i);
+    }
     await _writeList(_kRecords, records);
     notifyListeners();
   }
@@ -232,6 +245,26 @@ class AppStore extends ChangeNotifier {
   Future<void> setWaterToday(int glasses) async {
     water[dayKey(DateTime.now())] = glasses.clamp(0, 30);
     await _prefs!.setString(_kWater, jsonEncode(water));
+    notifyListeners();
+  }
+
+  // ---- Kick counter ----
+
+  Future<void> upsertKickSession(KickSession s) async {
+    final i = kickSessions.indexWhere((x) => x.id == s.id);
+    if (i >= 0) {
+      kickSessions[i] = s;
+    } else {
+      kickSessions.add(s);
+    }
+    kickSessions.sort((a, b) => b.start.compareTo(a.start));
+    await _writeList(_kKicks, kickSessions);
+    notifyListeners();
+  }
+
+  Future<void> deleteKickSession(String id) async {
+    kickSessions.removeWhere((s) => s.id == id);
+    await _writeList(_kKicks, kickSessions);
     notifyListeners();
   }
 

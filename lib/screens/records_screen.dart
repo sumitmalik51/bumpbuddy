@@ -1,7 +1,11 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../attachments.dart';
 import '../models.dart';
 import '../store.dart';
 
@@ -86,10 +90,28 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         margin: const EdgeInsets.only(bottom: 10),
                         child: ListTile(
                           onTap: () => _openEditor(context, existing: r),
-                          leading: CircleAvatar(
-                            backgroundColor: scheme.primaryContainer,
-                            child: Icon(_iconFor(r.category), color: scheme.primary),
-                          ),
+                          leading: (!kIsWeb &&
+                                  r.hasAttachment &&
+                                  r.isImageAttachment)
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.file(
+                                    File(r.filePath),
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => CircleAvatar(
+                                      backgroundColor: scheme.primaryContainer,
+                                      child: Icon(_iconFor(r.category),
+                                          color: scheme.primary),
+                                    ),
+                                  ),
+                                )
+                              : CircleAvatar(
+                                  backgroundColor: scheme.primaryContainer,
+                                  child: Icon(_iconFor(r.category),
+                                      color: scheme.primary),
+                                ),
                           title: Text(r.title),
                           subtitle: Text([
                             '${r.category.label} · ${DateFormat('d MMM yyyy').format(r.date)}',
@@ -144,6 +166,9 @@ class _RecordEditorState extends State<_RecordEditor> {
   late final TextEditingController _notes;
   late RecordCategory _category;
   late DateTime _date;
+  late String _fileName;
+  late String _filePath;
+  late final String _recordId;
 
   @override
   void initState() {
@@ -153,7 +178,29 @@ class _RecordEditorState extends State<_RecordEditor> {
     _notes = TextEditingController(text: e?.notes ?? '');
     _category = e?.category ?? RecordCategory.ultrasound;
     _date = e?.date ?? DateTime.now();
+    _fileName = e?.fileName ?? '';
+    _filePath = e?.filePath ?? '';
+    _recordId = e?.id ?? context.read<AppStore>().newId();
     _title.addListener(() => setState(() {}));
+  }
+
+  Future<void> _attach(
+      Future<({String fileName, String filePath})?> Function(String) pick)
+      async {
+    final result = await pick(_recordId);
+    if (result != null && mounted) {
+      // Replace any previous copy.
+      if (_filePath.isNotEmpty && _filePath != result.filePath) {
+        await Attachments.delete(_filePath);
+      }
+      setState(() {
+        _fileName = result.fileName;
+        _filePath = result.filePath;
+        if (_title.text.trim().isEmpty) {
+          _title.text = result.fileName;
+        }
+      });
+    }
   }
 
   @override
@@ -221,12 +268,64 @@ class _RecordEditorState extends State<_RecordEditor> {
                 if (picked != null) setState(() => _date = picked);
               },
             ),
-            Text(
-              'File attachments (photos/PDFs) arrive with the mobile build.',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
+            if (Attachments.supported) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _attach(Attachments.fromCamera),
+                      icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                      label: const Text('Camera'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _attach(Attachments.fromGallery),
+                      icon: const Icon(Icons.photo_outlined, size: 18),
+                      label: const Text('Gallery'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _attach(Attachments.fromFiles),
+                      icon: const Icon(Icons.attach_file, size: 18),
+                      label: const Text('File'),
+                    ),
+                  ),
+                ],
+              ),
+              if (_filePath.isNotEmpty)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_outlined),
+                  title: Text(_fileName.isEmpty ? 'Attachment' : _fileName,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: const Text('Tap to open'),
+                  onTap: () => Attachments.open(_filePath),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Remove attachment',
+                    onPressed: () async {
+                      await Attachments.delete(_filePath);
+                      if (mounted) {
+                        setState(() {
+                          _filePath = '';
+                          _fileName = '';
+                        });
+                      }
+                    },
+                  ),
+                ),
+            ] else
+              Text(
+                'Photo/PDF attachments work in the mobile app.',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -235,12 +334,13 @@ class _RecordEditorState extends State<_RecordEditor> {
                     ? null
                     : () {
                         store.upsertRecord(RecordItem(
-                          id: widget.existing?.id ?? store.newId(),
+                          id: _recordId,
                           date: _date,
                           category: _category,
                           title: _title.text.trim(),
                           notes: _notes.text.trim(),
-                          fileName: widget.existing?.fileName ?? '',
+                          fileName: _fileName,
+                          filePath: _filePath,
                         ));
                         Navigator.pop(context);
                       },

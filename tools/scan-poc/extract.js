@@ -3,14 +3,22 @@
  * BumpBuddy scan-poc — AI ultrasound-report reader (proof of concept)
  *
  * Extracts per-baby biometry from a JPG/PNG photo of an obstetric growth-scan
- * report using the Claude API (vision + structured outputs). Zero runtime
- * dependencies — uses Node's built-in fetch.
+ * report using vision + structured outputs on one of two providers:
+ *
+ *   - anthropic (default): the Claude API
+ *   - azure:               Microsoft Azure AI Foundry (Azure OpenAI) Chat Completions
+ *
+ * Zero runtime dependencies — uses Node's built-in fetch.
  *
  * Usage:
- *   node extract.js <image-file> [--twins] [--dry-run]
+ *   node extract.js <image-file> [--provider anthropic|azure] [--twins] [--dry-run]
  *
  * Env:
- *   ANTHROPIC_API_KEY   required (except with --dry-run)
+ *   SCAN_POC_PROVIDER          default for --provider (anthropic | azure)
+ *   anthropic:  ANTHROPIC_API_KEY                       required (except with --dry-run)
+ *   azure:      AZURE_OPENAI_ENDPOINT                   required (except with --dry-run)
+ *               AZURE_OPENAI_DEPLOYMENT                 required (except with --dry-run)
+ *               AZURE_OPENAI_API_KEY                    required (except with --dry-run)
  */
 
 import { readFile } from "node:fs/promises";
@@ -21,11 +29,23 @@ import process from "node:process";
 // Constants
 // ---------------------------------------------------------------------------
 
+const PROVIDERS = ["anthropic", "azure"];
+
+// --- Anthropic (Claude API) ---
 // Model choice: claude-opus-4-8 — the current recommended default Opus-tier
 // model for the Claude API (strong vision + structured-output support).
-const MODEL = "claude-opus-4-8";
-const API_URL = "https://api.anthropic.com/v1/messages";
-const API_VERSION = "2023-06-01";
+const ANTHROPIC_MODEL = "claude-opus-4-8";
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_API_VERSION = "2023-06-01";
+
+// --- Azure AI Foundry (Azure OpenAI) ---
+// api-version choice: 2024-10-21 is the most recent STABLE (GA, non-preview)
+// Azure OpenAI data-plane inference api-version. It supports everything this
+// PoC needs — vision input via image_url content parts and strict structured
+// outputs via response_format: json_schema — while preview versions churn and
+// get retired. The model itself comes from the user's deployment name.
+const AZURE_API_VERSION = "2024-10-21";
+
 const MAX_TOKENS = 16000; // non-streaming safe default; extraction output is small
 
 const MEDIA_TYPES = {
@@ -41,8 +61,11 @@ const MEDIA_TYPES = {
 const DISCORDANCE_THRESHOLD_PERCENT = 20;
 
 // ---------------------------------------------------------------------------
-// JSON schema for structured output (strict: additionalProperties:false and
-// every property required; absent values are null, never guessed).
+// JSON schema for structured output — shared verbatim by BOTH providers.
+// It is strict-mode compatible on both sides: additionalProperties:false on
+// every object, every property listed in "required", and nullability expressed
+// as union types (["number","null"]), which OpenAI/Azure strict json_schema
+// mode explicitly allows.
 // ---------------------------------------------------------------------------
 
 const BABY_SCHEMA = {
@@ -200,7 +223,7 @@ const OUTPUT_SCHEMA = {
 };
 
 // ---------------------------------------------------------------------------
-// Prompts
+// Prompts — shared verbatim by BOTH providers.
 // ---------------------------------------------------------------------------
 
 const SYSTEM_PROMPT = `You are a medical-report DATA EXTRACTION engine embedded in a pregnancy-tracking app. You will be shown a photograph or scan of an obstetric ultrasound growth-scan report.
@@ -241,25 +264,57 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
 // ---------------------------------------------------------------------------
 
 function printUsage() {
-  console.error(`Usage: node extract.js <image-file> [--twins] [--dry-run]
+  console.error(`Usage: node extract.js <image-file> [--provider anthropic|azure] [--twins] [--dry-run]
 
-  <image-file>   Photo/scan of an ultrasound growth-scan report (.jpg/.jpeg/.png/.webp/.gif)
-  --twins        Hint that this is a twin pregnancy (the model searches harder for a second fetus)
-  --dry-run      Print the exact API request payload (image bytes redacted) and exit without calling the API
+  <image-file>        Photo/scan of an ultrasound growth-scan report (.jpg/.jpeg/.png/.webp/.gif)
+  --provider <name>   AI provider: "anthropic" (Claude API, default) or "azure" (Azure AI Foundry / Azure OpenAI).
+                      Falls back to $env:SCAN_POC_PROVIDER when the flag is omitted.
+  --twins             Hint that this is a twin pregnancy (the model searches harder for a second fetus)
+  --dry-run           Print the exact API request payload (image bytes redacted) and exit without calling the API
 
 Environment:
-  ANTHROPIC_API_KEY   Your Claude API key (not required for --dry-run)
-    PowerShell:  $env:ANTHROPIC_API_KEY = "sk-ant-..."
-    bash/zsh:    export ANTHROPIC_API_KEY="sk-ant-..."`);
+  SCAN_POC_PROVIDER   Default provider when --provider is not given (anthropic | azure)
+
+  --provider anthropic:
+    ANTHROPIC_API_KEY   Your Claude API key (not required for --dry-run)
+      PowerShell:  $env:ANTHROPIC_API_KEY = "sk-ant-..."
+      bash/zsh:    export ANTHROPIC_API_KEY="sk-ant-..."
+
+  --provider azure (none required for --dry-run):
+    AZURE_OPENAI_ENDPOINT     e.g. https://myresource.openai.azure.com  (or https://myresource.services.ai.azure.com)
+    AZURE_OPENAI_DEPLOYMENT   Your deployment NAME — must be a vision-capable model (e.g. gpt-4o)
+    AZURE_OPENAI_API_KEY      Key from Azure portal -> your resource -> Keys and Endpoint
+      PowerShell:  $env:AZURE_OPENAI_ENDPOINT = "https://myresource.openai.azure.com"
+                   $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+                   $env:AZURE_OPENAI_API_KEY = "<key>"`);
 }
 
 function parseArgs(argv) {
-  const args = { imageFile: null, twins: false, dryRun: false, help: false, invalid: false };
-  for (const a of argv) {
+  const args = {
+    imageFile: null,
+    twins: false,
+    dryRun: false,
+    help: false,
+    invalid: false,
+    provider: null,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a === "--twins") args.twins = true;
     else if (a === "--dry-run") args.dryRun = true;
     else if (a === "--help" || a === "-h") args.help = true;
-    else if (a.startsWith("--")) {
+    else if (a === "--provider") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        console.error(`--provider requires a value: ${PROVIDERS.join(" | ")}\n`);
+        args.invalid = true;
+      } else {
+        args.provider = value;
+        i++;
+      }
+    } else if (a.startsWith("--provider=")) {
+      args.provider = a.slice("--provider=".length);
+    } else if (a.startsWith("--")) {
       console.error(`Unknown option: ${a}\n`);
       args.invalid = true;
     } else if (!args.imageFile) args.imageFile = a;
@@ -271,8 +326,340 @@ function parseArgs(argv) {
   return args;
 }
 
+function resolveProvider(cliProvider) {
+  const raw = cliProvider ?? process.env.SCAN_POC_PROVIDER ?? "anthropic";
+  const provider = String(raw).trim().toLowerCase();
+  if (!PROVIDERS.includes(provider)) {
+    console.error(
+      `Unknown provider "${raw}" (from ${cliProvider != null ? "--provider" : "SCAN_POC_PROVIDER"}). ` +
+        `Valid providers: ${PROVIDERS.join(", ")}\n`
+    );
+    return null;
+  }
+  return provider;
+}
+
 // ---------------------------------------------------------------------------
-// Derived metrics (computed locally, never by the model)
+// Provider request builders
+// ---------------------------------------------------------------------------
+
+function getAzureConfig({ allowMissing }) {
+  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT ?? "").trim().replace(/\/+$/, "");
+  const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT ?? "").trim();
+  const apiKey = (process.env.AZURE_OPENAI_API_KEY ?? "").trim();
+
+  const missing = [];
+  if (!endpoint) missing.push("AZURE_OPENAI_ENDPOINT");
+  if (!deployment) missing.push("AZURE_OPENAI_DEPLOYMENT");
+  if (!apiKey) missing.push("AZURE_OPENAI_API_KEY");
+
+  if (missing.length > 0 && !allowMissing) {
+    console.error(`Missing environment variable(s) for --provider azure: ${missing.join(", ")}
+
+Set them and re-run:
+  PowerShell:
+    $env:AZURE_OPENAI_ENDPOINT   = "https://myresource.openai.azure.com"   # or https://myresource.services.ai.azure.com
+    $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"                                # your deployment NAME (must be a vision-capable model)
+    $env:AZURE_OPENAI_API_KEY    = "<key>"
+
+  bash/zsh:
+    export AZURE_OPENAI_ENDPOINT="https://myresource.openai.azure.com"
+    export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
+    export AZURE_OPENAI_API_KEY="<key>"
+
+Find the endpoint and key in the Azure portal under your Azure OpenAI resource
+-> "Keys and Endpoint", and the deployment name in Azure AI Foundry under
+"Deployments". The deployment must be a vision-capable model (e.g. gpt-4o,
+gpt-4o-mini, gpt-4.1, or the gpt-5 family).
+Tip: use --dry-run to inspect the request payload without credentials.`);
+    process.exit(1);
+  }
+
+  return {
+    endpoint: endpoint || "https://<AZURE_OPENAI_ENDPOINT-not-set>",
+    deployment: deployment || "<AZURE_OPENAI_DEPLOYMENT-not-set>",
+    apiKey,
+  };
+}
+
+function buildAnthropicPayload(mediaType, imageBase64, twinsHint) {
+  return {
+    model: ANTHROPIC_MODEL,
+    max_tokens: MAX_TOKENS,
+    thinking: { type: "adaptive" },
+    output_config: {
+      effort: "high",
+      format: {
+        type: "json_schema",
+        schema: OUTPUT_SCHEMA,
+      },
+    },
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mediaType,
+              data: imageBase64,
+            },
+          },
+          { type: "text", text: buildUserPrompt(twinsHint) },
+        ],
+      },
+    ],
+  };
+}
+
+function buildAzurePayload(mediaType, imageBase64, twinsHint) {
+  return {
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${mediaType};base64,${imageBase64}`,
+              detail: "high",
+            },
+          },
+          { type: "text", text: buildUserPrompt(twinsHint) },
+        ],
+      },
+    ],
+    max_completion_tokens: MAX_TOKENS,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "scan_extraction",
+        strict: true,
+        schema: OUTPUT_SCHEMA,
+      },
+    },
+  };
+}
+
+/**
+ * Builds the full request for the chosen provider:
+ * { label, url, headers, maskedHeaders, payload }
+ */
+function buildRequest(provider, mediaType, imageBase64, twinsHint, dryRun) {
+  if (provider === "azure") {
+    const cfg = getAzureConfig({ allowMissing: dryRun });
+    return {
+      label: "Azure OpenAI",
+      url: `${cfg.endpoint}/openai/deployments/${cfg.deployment}/chat/completions?api-version=${AZURE_API_VERSION}`,
+      headers: {
+        "content-type": "application/json",
+        "api-key": cfg.apiKey,
+      },
+      maskedHeaders: {
+        "content-type": "application/json",
+        "api-key": cfg.apiKey
+          ? "<redacted (AZURE_OPENAI_API_KEY is set)>"
+          : "<AZURE_OPENAI_API_KEY not set>",
+      },
+      payload: buildAzurePayload(mediaType, imageBase64, twinsHint),
+    };
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  return {
+    label: "the Claude API",
+    url: ANTHROPIC_API_URL,
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey ?? "",
+      "anthropic-version": ANTHROPIC_API_VERSION,
+    },
+    maskedHeaders: {
+      "content-type": "application/json",
+      "anthropic-version": ANTHROPIC_API_VERSION,
+      "x-api-key": apiKey ? "<redacted (ANTHROPIC_API_KEY is set)>" : "<ANTHROPIC_API_KEY not set>",
+    },
+    payload: buildAnthropicPayload(mediaType, imageBase64, twinsHint),
+  };
+}
+
+function redactImageForDryRun(provider, payload, mediaType, rawByteLength, base64Length) {
+  const redacted = structuredClone(payload);
+  const note = `<base64 ${mediaType} data omitted: ${rawByteLength} bytes raw, ${base64Length} chars base64>`;
+  if (provider === "azure") {
+    // messages[0] is the system prompt; messages[1] is the user turn.
+    redacted.messages[1].content[0].image_url.url = `data:${mediaType};base64,${note}`;
+  } else {
+    redacted.messages[0].content[0].source.data = note;
+  }
+  return redacted;
+}
+
+// ---------------------------------------------------------------------------
+// Provider response handling
+// ---------------------------------------------------------------------------
+
+/** Prints provider-specific hints for a non-2xx response, then exits 1. */
+function reportHttpError(provider, res, bodyText) {
+  const label = provider === "azure" ? "Azure OpenAI" : "Claude API";
+  console.error(`${label} returned HTTP ${res.status}:`);
+  console.error(bodyText);
+
+  if (provider === "azure") {
+    let apiError = null;
+    try {
+      apiError = JSON.parse(bodyText)?.error ?? null;
+    } catch {
+      /* non-JSON error body */
+    }
+    if (res.status === 401) {
+      console.error(
+        "\nHTTP 401: check that AZURE_OPENAI_API_KEY is a valid key for THIS resource " +
+          "(Azure portal -> your Azure OpenAI resource -> Keys and Endpoint). " +
+          "Keys are per-resource — a key from a different resource is rejected."
+      );
+    } else if (res.status === 403) {
+      console.error(
+        "\nHTTP 403: the key was recognized but access was denied — check the resource's " +
+          "network/firewall rules and that key-based auth is not disabled (Entra ID-only)."
+      );
+    } else if (res.status === 404) {
+      console.error(`\nHTTP 404: usually a wrong deployment name or endpoint.
+  - AZURE_OPENAI_DEPLOYMENT must be the deployment NAME you chose in Azure AI Foundry
+    (it is not always the same as the model name).
+  - AZURE_OPENAI_ENDPOINT must be the bare resource endpoint
+    (https://<resource>.openai.azure.com) with no extra path.
+  - A newly created deployment can take a few minutes to become routable.`);
+    } else if (res.status === 429) {
+      const retryAfter = res.headers.get("retry-after");
+      console.error(
+        "\nHTTP 429: rate limited — the deployment's tokens-per-minute (TPM) quota is exhausted." +
+          (retryAfter ? ` Retry after ${retryAfter} s.` : " Wait and retry.") +
+          "\nYou can raise the deployment's TPM allocation in Azure AI Foundry."
+      );
+    }
+    if (apiError?.code === "content_filter") {
+      console.error(
+        "\nAzure's content filter blocked the INPUT (prompt/image) — the request never reached the model."
+      );
+      const filterResult = apiError?.innererror?.content_filter_result;
+      if (filterResult) {
+        console.error("content_filter_result: " + JSON.stringify(filterResult, null, 2));
+      }
+      console.error(
+        "An ultrasound report photo should not normally trip the filter; if this recurs, " +
+          "review the deployment's content-filter configuration in Azure AI Foundry."
+      );
+    }
+  } else {
+    if (res.status === 401) console.error("\nCheck that ANTHROPIC_API_KEY is valid.");
+    if (res.status === 429) console.error("\nRate limited — wait and retry.");
+  }
+  process.exit(1);
+}
+
+/** Anthropic Messages API response -> { resultText, usageLine }. Exits 1 on fatal problems. */
+function parseAnthropicMessage(bodyText) {
+  let message;
+  try {
+    message = JSON.parse(bodyText);
+  } catch {
+    console.error("Could not parse API response as JSON:");
+    console.error(bodyText.slice(0, 2000));
+    process.exit(1);
+  }
+
+  // --- Handle stop reasons before touching content ---
+  if (message.stop_reason === "refusal") {
+    console.error(
+      "The model declined to process this request (stop_reason: refusal). " +
+        "Verify the image is an ultrasound report and try again."
+    );
+    process.exit(1);
+  }
+  if (message.stop_reason === "max_tokens") {
+    console.error(
+      "Warning: response was truncated (stop_reason: max_tokens); extraction may be incomplete."
+    );
+  }
+
+  const textBlock = (message.content ?? []).find((b) => b.type === "text");
+  if (!textBlock) {
+    console.error("No text content in API response:");
+    console.error(JSON.stringify(message, null, 2).slice(0, 2000));
+    process.exit(1);
+  }
+
+  const usageLine = message.usage
+    ? `\n[tokens] input=${message.usage.input_tokens} output=${message.usage.output_tokens}`
+    : null;
+  return { resultText: textBlock.text, usageLine };
+}
+
+/** Azure OpenAI Chat Completions response -> { resultText, usageLine }. Exits 1 on fatal problems. */
+function parseAzureCompletion(bodyText) {
+  let completion;
+  try {
+    completion = JSON.parse(bodyText);
+  } catch {
+    console.error("Could not parse API response as JSON:");
+    console.error(bodyText.slice(0, 2000));
+    process.exit(1);
+  }
+
+  const choice = completion.choices?.[0];
+  if (!choice) {
+    console.error("No choices in Azure OpenAI response:");
+    console.error(JSON.stringify(completion, null, 2).slice(0, 2000));
+    process.exit(1);
+  }
+
+  if (choice.finish_reason === "content_filter") {
+    console.error(
+      "Azure's content filter suppressed the model OUTPUT (finish_reason: content_filter)."
+    );
+    if (choice.content_filter_results) {
+      console.error(
+        "content_filter_results: " + JSON.stringify(choice.content_filter_results, null, 2)
+      );
+    }
+    console.error(
+      "If this recurs for a legitimate report photo, review the deployment's " +
+        "content-filter configuration in Azure AI Foundry."
+    );
+    process.exit(1);
+  }
+  if (choice.message?.refusal) {
+    console.error(
+      `The model declined to process this request (refusal): ${choice.message.refusal}\n` +
+        "Verify the image is an ultrasound report and try again."
+    );
+    process.exit(1);
+  }
+  if (choice.finish_reason === "length") {
+    console.error(
+      "Warning: response was truncated (finish_reason: length); extraction may be incomplete."
+    );
+  }
+
+  const resultText = choice.message?.content;
+  if (typeof resultText !== "string" || resultText.length === 0) {
+    console.error("No message content in Azure OpenAI response:");
+    console.error(JSON.stringify(completion, null, 2).slice(0, 2000));
+    process.exit(1);
+  }
+
+  const usageLine = completion.usage
+    ? `\n[tokens] input=${completion.usage.prompt_tokens} output=${completion.usage.completion_tokens}`
+    : null;
+  return { resultText, usageLine };
+}
+
+// ---------------------------------------------------------------------------
+// Derived metrics (computed locally, never by the model) — provider-agnostic
 // ---------------------------------------------------------------------------
 
 function computeDiscordance(babies) {
@@ -301,7 +688,7 @@ function computeDiscordance(babies) {
 }
 
 // ---------------------------------------------------------------------------
-// Human-readable summary table
+// Human-readable summary table — provider-agnostic
 // ---------------------------------------------------------------------------
 
 function fmt(v, unit = "") {
@@ -378,6 +765,12 @@ async function main() {
     process.exit(1);
   }
 
+  const provider = resolveProvider(args.provider);
+  if (!provider) {
+    printUsage();
+    process.exit(1);
+  }
+
   // --- Load the image ---
   const ext = path.extname(args.imageFile).toLowerCase();
   const mediaType = MEDIA_TYPES[ext];
@@ -397,63 +790,26 @@ async function main() {
   }
   const imageBase64 = imageBuffer.toString("base64");
 
-  // --- Build the request payload ---
-  const payload = {
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    thinking: { type: "adaptive" },
-    output_config: {
-      effort: "high",
-      format: {
-        type: "json_schema",
-        schema: OUTPUT_SCHEMA,
-      },
-    },
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: imageBase64,
-            },
-          },
-          { type: "text", text: buildUserPrompt(args.twins) },
-        ],
-      },
-    ],
-  };
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // --- Build the request (validates Azure env vars unless --dry-run) ---
+  const request = buildRequest(provider, mediaType, imageBase64, args.twins, args.dryRun);
 
   // --- Dry run: show the exact request shape, minus image bytes ---
   if (args.dryRun) {
-    const redacted = structuredClone(payload);
-    redacted.messages[0].content[0].source.data =
-      `<base64 ${mediaType} data omitted: ${imageBuffer.length} bytes raw, ${imageBase64.length} chars base64>`;
-    console.log(`POST ${API_URL}`);
+    console.log(`POST ${request.url}`);
+    console.log("Headers: " + JSON.stringify(request.maskedHeaders, null, 2));
     console.log(
-      "Headers: " +
+      "Body: " +
         JSON.stringify(
-          {
-            "content-type": "application/json",
-            "anthropic-version": API_VERSION,
-            "x-api-key": apiKey ? "<redacted (ANTHROPIC_API_KEY is set)>" : "<ANTHROPIC_API_KEY not set>",
-          },
+          redactImageForDryRun(provider, request.payload, mediaType, imageBuffer.length, imageBase64.length),
           null,
           2
         )
     );
-    console.log("Body: " + JSON.stringify(redacted, null, 2));
     process.exit(0);
   }
 
-  // --- API key check ---
-  if (!apiKey) {
+  // --- API key check (Azure env vars were already validated in buildRequest) ---
+  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
     console.error(`ANTHROPIC_API_KEY is not set.
 
 Set it and re-run:
@@ -466,68 +822,58 @@ Tip: use --dry-run to inspect the request payload without a key.`);
     process.exit(1);
   }
 
-  // --- Call the Claude API ---
+  // --- Call the API ---
   let res;
   try {
-    res = await fetch(API_URL, {
+    res = await fetch(request.url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": API_VERSION,
-      },
-      body: JSON.stringify(payload),
+      headers: request.headers,
+      body: JSON.stringify(request.payload),
     });
   } catch (err) {
-    console.error(`Network error calling the Claude API: ${err.message}`);
+    console.error(`Network error calling ${request.label}: ${err.message}`);
     process.exit(1);
   }
+  let bodyText = await res.text();
 
-  const bodyText = await res.text();
-  if (!res.ok) {
-    console.error(`Claude API returned HTTP ${res.status}:`);
-    console.error(bodyText);
-    if (res.status === 401) console.error("\nCheck that ANTHROPIC_API_KEY is valid.");
-    if (res.status === 429) console.error("\nRate limited — wait and retry.");
-    process.exit(1);
-  }
-
-  let message;
-  try {
-    message = JSON.parse(bodyText);
-  } catch {
-    console.error("Could not parse API response as JSON:");
-    console.error(bodyText.slice(0, 2000));
-    process.exit(1);
-  }
-
-  // --- Handle stop reasons before touching content ---
-  if (message.stop_reason === "refusal") {
+  // Azure compatibility fallback: some older api-version/model combinations
+  // reject max_completion_tokens ("Unrecognized request argument"); retry once
+  // with the legacy max_tokens parameter.
+  if (
+    provider === "azure" &&
+    res.status === 400 &&
+    /max_completion_tokens/i.test(bodyText) &&
+    /(unrecognized|unsupported|unknown)/i.test(bodyText)
+  ) {
     console.error(
-      "The model declined to process this request (stop_reason: refusal). " +
-        "Verify the image is an ultrasound report and try again."
+      "Note: this deployment/api-version rejected max_completion_tokens — retrying once with max_tokens."
     );
-    process.exit(1);
-  }
-  if (message.stop_reason === "max_tokens") {
-    console.error(
-      "Warning: response was truncated (stop_reason: max_tokens); extraction may be incomplete."
-    );
+    const fallbackPayload = { ...request.payload, max_tokens: MAX_TOKENS };
+    delete fallbackPayload.max_completion_tokens;
+    try {
+      res = await fetch(request.url, {
+        method: "POST",
+        headers: request.headers,
+        body: JSON.stringify(fallbackPayload),
+      });
+    } catch (err) {
+      console.error(`Network error calling ${request.label}: ${err.message}`);
+      process.exit(1);
+    }
+    bodyText = await res.text();
   }
 
-  const textBlock = (message.content ?? []).find((b) => b.type === "text");
-  if (!textBlock) {
-    console.error("No text content in API response:");
-    console.error(JSON.stringify(message, null, 2).slice(0, 2000));
-    process.exit(1);
-  }
+  if (!res.ok) reportHttpError(provider, res, bodyText);
+
+  const { resultText, usageLine } =
+    provider === "azure" ? parseAzureCompletion(bodyText) : parseAnthropicMessage(bodyText);
 
   let result;
   try {
-    result = JSON.parse(textBlock.text);
+    result = JSON.parse(resultText);
   } catch (err) {
     console.error(`Model output was not valid JSON (${err.message}):`);
-    console.error(textBlock.text.slice(0, 2000));
+    console.error(resultText.slice(0, 2000));
     process.exit(1);
   }
 
@@ -547,11 +893,7 @@ Tip: use --dry-run to inspect the request payload without a key.`);
   console.log(JSON.stringify(output, null, 2));
   printSummary(result, derived);
 
-  if (message.usage) {
-    console.error(
-      `\n[tokens] input=${message.usage.input_tokens} output=${message.usage.output_tokens}`
-    );
-  }
+  if (usageLine) console.error(usageLine);
 }
 
 main().catch((err) => {
