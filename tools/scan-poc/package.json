@@ -1,0 +1,10 @@
+{
+  "name": "bumpbuddy-scan-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proof-of-concept: extract per-baby biometry from a photo of an ultrasound growth-scan report using the Claude API (vision + structured outputs). Zero runtime dependencies.",
+  "engines": {
+    "node": ">=20"
+  }
+}

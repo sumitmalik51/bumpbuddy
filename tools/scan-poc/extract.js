@@ -1,0 +1,560 @@
+#!/usr/bin/env node
+/**
+ * BumpBuddy scan-poc — AI ultrasound-report reader (proof of concept)
+ *
+ * Extracts per-baby biometry from a JPG/PNG photo of an obstetric growth-scan
+ * report using the Claude API (vision + structured outputs). Zero runtime
+ * dependencies — uses Node's built-in fetch.
+ *
+ * Usage:
+ *   node extract.js <image-file> [--twins] [--dry-run]
+ *
+ * Env:
+ *   ANTHROPIC_API_KEY   required (except with --dry-run)
+ */
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+// Model choice: claude-opus-4-8 — the current recommended default Opus-tier
+// model for the Claude API (strong vision + structured-output support).
+const MODEL = "claude-opus-4-8";
+const API_URL = "https://api.anthropic.com/v1/messages";
+const API_VERSION = "2023-06-01";
+const MAX_TOKENS = 16000; // non-streaming safe default; extraction output is small
+
+const MEDIA_TYPES = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+// Threshold above which inter-twin EFW discordance is commonly considered
+// clinically significant in obstetric practice.
+const DISCORDANCE_THRESHOLD_PERCENT = 20;
+
+// ---------------------------------------------------------------------------
+// JSON schema for structured output (strict: additionalProperties:false and
+// every property required; absent values are null, never guessed).
+// ---------------------------------------------------------------------------
+
+const BABY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "label",
+    "presentation",
+    "efw_grams",
+    "efw_raw",
+    "hc_mm",
+    "hc_raw",
+    "ac_mm",
+    "ac_raw",
+    "fl_mm",
+    "fl_raw",
+    "bpd_mm",
+    "bpd_raw",
+    "fhr_bpm",
+    "placenta",
+    "placenta_grade",
+    "liquor_afi_cm",
+    "dvp_cm",
+    "umbilical_doppler",
+  ],
+  properties: {
+    label: {
+      type: "string",
+      description:
+        'Normalized single-letter label in document order: "A", "B", ... (Twin A / Fetus 1 / F1 -> "A").',
+    },
+    presentation: {
+      type: ["string", "null"],
+      description: "Fetal presentation as printed (e.g. cephalic, breech, transverse).",
+    },
+    efw_grams: {
+      type: ["number", "null"],
+      description:
+        "Estimated fetal weight in grams. If printed as a range or with a tolerance, the central value. Null if absent or not safely convertible.",
+    },
+    efw_raw: {
+      type: ["string", "null"],
+      description:
+        "Verbatim EFW text from the report when it is a range, has a tolerance, uses non-gram units, or is otherwise ambiguous. Null when efw_grams is an unambiguous plain number.",
+    },
+    hc_mm: {
+      type: ["number", "null"],
+      description: "Head circumference in millimetres (convert cm -> mm). Null if only a week-equivalent is printed.",
+    },
+    hc_raw: {
+      type: ["string", "null"],
+      description: 'Verbatim HC text when ambiguous or week-based (e.g. "HC = 32w4d").',
+    },
+    ac_mm: {
+      type: ["number", "null"],
+      description: "Abdominal circumference in millimetres (convert cm -> mm).",
+    },
+    ac_raw: {
+      type: ["string", "null"],
+      description: "Verbatim AC text when ambiguous or week-based.",
+    },
+    fl_mm: {
+      type: ["number", "null"],
+      description: "Femur length in millimetres (convert cm -> mm).",
+    },
+    fl_raw: {
+      type: ["string", "null"],
+      description: "Verbatim FL text when ambiguous or week-based.",
+    },
+    bpd_mm: {
+      type: ["number", "null"],
+      description: "Biparietal diameter in millimetres (convert cm -> mm).",
+    },
+    bpd_raw: {
+      type: ["string", "null"],
+      description: "Verbatim BPD text when ambiguous or week-based.",
+    },
+    fhr_bpm: {
+      type: ["number", "null"],
+      description: "Fetal heart rate in beats per minute.",
+    },
+    placenta: {
+      type: ["string", "null"],
+      description: "Placental location/description as printed (e.g. anterior, posterior, fundal, low-lying).",
+    },
+    placenta_grade: {
+      type: ["string", "null"],
+      description: 'Placental maturity grade as printed (e.g. "Grade II", "Gr. 2").',
+    },
+    liquor_afi_cm: {
+      type: ["number", "null"],
+      description: "Amniotic fluid index (AFI / liquor) in centimetres.",
+    },
+    dvp_cm: {
+      type: ["number", "null"],
+      description: "Deepest vertical pocket (DVP / SDP / MVP) in centimetres.",
+    },
+    umbilical_doppler: {
+      type: ["string", "null"],
+      description:
+        "Umbilical artery Doppler findings as printed (e.g. S/D ratio, PI, RI values, end-diastolic flow status). Verbatim, no interpretation.",
+    },
+  },
+};
+
+const OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "report_date",
+    "gestational_age_on_report",
+    "twins_detected",
+    "babies",
+    "impression",
+    "flags",
+    "confidence_notes",
+  ],
+  properties: {
+    report_date: {
+      type: ["string", "null"],
+      description:
+        "Date of the scan/report. ISO 8601 (YYYY-MM-DD) if unambiguous on the report; otherwise verbatim as printed. Null if not printed.",
+    },
+    gestational_age_on_report: {
+      type: ["string", "null"],
+      description:
+        'Gestational age stated on the report, verbatim (e.g. "32 weeks 4 days", "32w4d"). Null if not printed.',
+    },
+    twins_detected: {
+      type: "boolean",
+      description: "True only if the report clearly documents more than one fetus.",
+    },
+    babies: {
+      type: "array",
+      description: "One entry per fetus documented on the report, in document order.",
+      items: BABY_SCHEMA,
+    },
+    impression: {
+      type: ["string", "null"],
+      description:
+        "The report's own impression/conclusion section, transcribed (may be lightly abbreviated). NEVER the model's own assessment. Null if the report has no such section.",
+    },
+    flags: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Short factual notes about documented findings or data-quality issues (no advice, no diagnosis).",
+    },
+    confidence_notes: {
+      type: ["string", "null"],
+      description:
+        "Which fields were set to null (or are low-confidence) and why: illegible, cut off, blurry, ambiguous units, etc. Null if everything was clearly legible.",
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+const SYSTEM_PROMPT = `You are a medical-report DATA EXTRACTION engine embedded in a pregnancy-tracking app. You will be shown a photograph or scan of an obstetric ultrasound growth-scan report.
+
+Non-negotiable rules:
+
+1. EXTRACTION ONLY. Transcribe and normalize values that are literally printed on the report. Do not diagnose, interpret, predict outcomes, or offer medical opinions of any kind.
+2. NO REASSURANCE, NO ALARM. Never add commentary such as "this looks normal" or "this is concerning". The "impression" field must be a transcription of the report's own impression/conclusion section — never your assessment. If the report has no impression section, set it to null.
+3. NEVER GUESS. If a value is absent, illegible, cut off, blurred, overexposed, or ambiguous, set that field to null and explain which fields were affected and why in "confidence_notes". A null with an explanation is always better than a plausible guess.
+4. NORMALIZE UNITS. EFW in grams; HC/AC/FL/BPD in millimetres; AFI (liquor) and DVP in centimetres; FHR in beats per minute. If the report prints a length in cm for a mm field, convert (1 cm = 10 mm) and keep the verbatim text in the matching *_raw field. If a biometry value is printed ONLY as a gestational-age equivalent (e.g. "HC = 32w4d") or in a unit you cannot safely convert, put the verbatim text in the *_raw field and set the numeric field to null — do not convert weeks to millimetres.
+5. INDIAN RADIOLOGY CONVENTIONS are common: EFW usually in grams, sometimes with a tolerance or range ("1897 +/- 277 gm") — use the central value for efw_grams and keep the full text in efw_raw. Biometry tables often show a measurement column AND a week-equivalent column — extract the measurement, and use *_raw only if the measurement column is missing or unreadable. "Liquor" means amniotic fluid. Placental grading appears as Grade 0-III (or 1-3).
+6. TWIN LABELS. Babies may be labelled "Twin A/Twin B", "Fetus 1/Fetus 2", "F1/F2", "Baby A/Baby B", or similar. Normalize to "A", "B", "C"... in document order (Twin A / Fetus 1 / F1 -> "A"). Set twins_detected to true only if the report clearly documents more than one fetus. Never invent a second fetus.
+7. FLAGS are short, factual, and derived only from what the report documents or from data-quality issues (e.g. "AFI recorded for only one fetus", "biometry table partially cut off"). No advice, no severity judgements.
+
+Your entire output must conform to the provided JSON schema.`;
+
+function buildUserPrompt(twinsHint) {
+  let prompt = `Extract the structured data from this ultrasound growth-scan report photo.
+
+Steps:
+1. Read the report header for the scan/report date and the stated gestational age.
+2. Identify how many fetuses the report documents and their labels.
+3. For each fetus, extract: presentation, EFW, HC, AC, FL, BPD, FHR, placenta location and grade, liquor/AFI, DVP, and umbilical artery Doppler findings — normalizing units per the system rules and using the *_raw fields for verbatim text whenever a value is ambiguous, ranged, or week-based.
+4. Transcribe the report's impression/conclusion section if present.
+5. Record any documented notable findings or data-quality problems in "flags", and explain every null / low-confidence field in "confidence_notes".`;
+
+  if (twinsHint) {
+    prompt += `
+
+Note: the user has indicated this is a TWIN pregnancy. Look carefully for a second fetus — twin reports often present per-fetus data in side-by-side columns, sequential blocks, or a shared table with Twin A / Twin B (or Fetus 1 / Fetus 2, F1 / F2) columns. If the report nevertheless documents only one fetus, do NOT invent a second baby: return the single baby, set twins_detected accordingly, and record the mismatch in flags and confidence_notes.`;
+  }
+
+  return prompt;
+}
+
+// ---------------------------------------------------------------------------
+// CLI parsing
+// ---------------------------------------------------------------------------
+
+function printUsage() {
+  console.error(`Usage: node extract.js <image-file> [--twins] [--dry-run]
+
+  <image-file>   Photo/scan of an ultrasound growth-scan report (.jpg/.jpeg/.png/.webp/.gif)
+  --twins        Hint that this is a twin pregnancy (the model searches harder for a second fetus)
+  --dry-run      Print the exact API request payload (image bytes redacted) and exit without calling the API
+
+Environment:
+  ANTHROPIC_API_KEY   Your Claude API key (not required for --dry-run)
+    PowerShell:  $env:ANTHROPIC_API_KEY = "sk-ant-..."
+    bash/zsh:    export ANTHROPIC_API_KEY="sk-ant-..."`);
+}
+
+function parseArgs(argv) {
+  const args = { imageFile: null, twins: false, dryRun: false, help: false, invalid: false };
+  for (const a of argv) {
+    if (a === "--twins") args.twins = true;
+    else if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--help" || a === "-h") args.help = true;
+    else if (a.startsWith("--")) {
+      console.error(`Unknown option: ${a}\n`);
+      args.invalid = true;
+    } else if (!args.imageFile) args.imageFile = a;
+    else {
+      console.error(`Unexpected extra argument: ${a}\n`);
+      args.invalid = true;
+    }
+  }
+  return args;
+}
+
+// ---------------------------------------------------------------------------
+// Derived metrics (computed locally, never by the model)
+// ---------------------------------------------------------------------------
+
+function computeDiscordance(babies) {
+  const withEfw = (babies ?? []).filter(
+    (b) => typeof b.efw_grams === "number" && b.efw_grams > 0
+  );
+  if (withEfw.length < 2) {
+    return {
+      efw_discordance_percent: null,
+      clinically_significant: null,
+      note: "Not computed: EFW available for fewer than two babies.",
+    };
+  }
+  const efws = withEfw.map((b) => b.efw_grams);
+  const larger = Math.max(...efws);
+  const smaller = Math.min(...efws);
+  const pct = ((larger - smaller) / larger) * 100;
+  const significant = pct >= DISCORDANCE_THRESHOLD_PERCENT;
+  return {
+    efw_discordance_percent: Math.round(pct * 10) / 10,
+    clinically_significant: significant,
+    note: significant
+      ? "clinically significant discordance — discuss with doctor"
+      : `below the ${DISCORDANCE_THRESHOLD_PERCENT}% threshold commonly used for clinically significant discordance`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Human-readable summary table
+// ---------------------------------------------------------------------------
+
+function fmt(v, unit = "") {
+  if (v === null || v === undefined || v === "") return "—";
+  return unit ? `${v} ${unit}` : String(v);
+}
+
+function printSummary(result, derived) {
+  const babies = result.babies ?? [];
+  const rows = [
+    ["Metric", ...babies.map((b) => `Baby ${b.label ?? "?"}`)],
+    ["Presentation", ...babies.map((b) => fmt(b.presentation))],
+    ["EFW", ...babies.map((b) => fmt(b.efw_grams, "g"))],
+    ["HC", ...babies.map((b) => fmt(b.hc_mm, "mm"))],
+    ["AC", ...babies.map((b) => fmt(b.ac_mm, "mm"))],
+    ["FL", ...babies.map((b) => fmt(b.fl_mm, "mm"))],
+    ["BPD", ...babies.map((b) => fmt(b.bpd_mm, "mm"))],
+    ["FHR", ...babies.map((b) => fmt(b.fhr_bpm, "bpm"))],
+    ["Placenta", ...babies.map((b) => fmt(b.placenta))],
+    ["Placenta grade", ...babies.map((b) => fmt(b.placenta_grade))],
+    ["AFI (liquor)", ...babies.map((b) => fmt(b.liquor_afi_cm, "cm"))],
+    ["DVP", ...babies.map((b) => fmt(b.dvp_cm, "cm"))],
+    ["UA Doppler", ...babies.map((b) => fmt(b.umbilical_doppler))],
+  ];
+
+  const widths = rows[0].map((_, col) =>
+    Math.max(...rows.map((r) => String(r[col] ?? "").length))
+  );
+  const line = (r) => r.map((c, i) => String(c ?? "").padEnd(widths[i])).join("  |  ");
+  const sep = widths.map((w) => "-".repeat(w)).join("--+--");
+
+  console.log("");
+  console.log("=== Scan summary ===");
+  console.log(`Report date:      ${fmt(result.report_date)}`);
+  console.log(`Gestational age:  ${fmt(result.gestational_age_on_report)}`);
+  console.log(`Twins detected:   ${result.twins_detected ? "yes" : "no"}`);
+  console.log("");
+  if (babies.length === 0) {
+    console.log("(no per-baby data extracted)");
+  } else {
+    console.log(line(rows[0]));
+    console.log(sep);
+    for (const r of rows.slice(1)) console.log(line(r));
+  }
+  console.log("");
+  if (derived.efw_discordance_percent !== null) {
+    console.log(
+      `Inter-twin EFW discordance: ${derived.efw_discordance_percent}%` +
+        (derived.clinically_significant ? `  << ${derived.note.toUpperCase()} >>` : ` (${derived.note})`)
+    );
+  } else {
+    console.log(`Inter-twin EFW discordance: ${derived.note}`);
+  }
+  if (result.impression) console.log(`\nReport impression (verbatim): ${result.impression}`);
+  if (result.flags?.length) console.log(`\nFlags: ${result.flags.map((f) => `\n  - ${f}`).join("")}`);
+  if (result.confidence_notes) console.log(`\nConfidence notes: ${result.confidence_notes}`);
+  console.log(
+    "\nNote: this tool only transcribes what is printed on the report. It provides no medical advice. Always review results with your doctor."
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    printUsage();
+    process.exit(0);
+  }
+  if (args.invalid || !args.imageFile) {
+    printUsage();
+    process.exit(1);
+  }
+
+  // --- Load the image ---
+  const ext = path.extname(args.imageFile).toLowerCase();
+  const mediaType = MEDIA_TYPES[ext];
+  if (!mediaType) {
+    console.error(
+      `Unsupported image extension "${ext}". Supported: ${Object.keys(MEDIA_TYPES).join(", ")}`
+    );
+    process.exit(1);
+  }
+
+  let imageBuffer;
+  try {
+    imageBuffer = await readFile(args.imageFile);
+  } catch (err) {
+    console.error(`Could not read image file "${args.imageFile}": ${err.message}`);
+    process.exit(1);
+  }
+  const imageBase64 = imageBuffer.toString("base64");
+
+  // --- Build the request payload ---
+  const payload = {
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    thinking: { type: "adaptive" },
+    output_config: {
+      effort: "high",
+      format: {
+        type: "json_schema",
+        schema: OUTPUT_SCHEMA,
+      },
+    },
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mediaType,
+              data: imageBase64,
+            },
+          },
+          { type: "text", text: buildUserPrompt(args.twins) },
+        ],
+      },
+    ],
+  };
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  // --- Dry run: show the exact request shape, minus image bytes ---
+  if (args.dryRun) {
+    const redacted = structuredClone(payload);
+    redacted.messages[0].content[0].source.data =
+      `<base64 ${mediaType} data omitted: ${imageBuffer.length} bytes raw, ${imageBase64.length} chars base64>`;
+    console.log(`POST ${API_URL}`);
+    console.log(
+      "Headers: " +
+        JSON.stringify(
+          {
+            "content-type": "application/json",
+            "anthropic-version": API_VERSION,
+            "x-api-key": apiKey ? "<redacted (ANTHROPIC_API_KEY is set)>" : "<ANTHROPIC_API_KEY not set>",
+          },
+          null,
+          2
+        )
+    );
+    console.log("Body: " + JSON.stringify(redacted, null, 2));
+    process.exit(0);
+  }
+
+  // --- API key check ---
+  if (!apiKey) {
+    console.error(`ANTHROPIC_API_KEY is not set.
+
+Set it and re-run:
+  PowerShell:   $env:ANTHROPIC_API_KEY = "sk-ant-..."
+  cmd.exe:      set ANTHROPIC_API_KEY=sk-ant-...
+  bash/zsh:     export ANTHROPIC_API_KEY="sk-ant-..."
+
+Get a key at https://platform.claude.com/ (API Keys).
+Tip: use --dry-run to inspect the request payload without a key.`);
+    process.exit(1);
+  }
+
+  // --- Call the Claude API ---
+  let res;
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": API_VERSION,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error(`Network error calling the Claude API: ${err.message}`);
+    process.exit(1);
+  }
+
+  const bodyText = await res.text();
+  if (!res.ok) {
+    console.error(`Claude API returned HTTP ${res.status}:`);
+    console.error(bodyText);
+    if (res.status === 401) console.error("\nCheck that ANTHROPIC_API_KEY is valid.");
+    if (res.status === 429) console.error("\nRate limited — wait and retry.");
+    process.exit(1);
+  }
+
+  let message;
+  try {
+    message = JSON.parse(bodyText);
+  } catch {
+    console.error("Could not parse API response as JSON:");
+    console.error(bodyText.slice(0, 2000));
+    process.exit(1);
+  }
+
+  // --- Handle stop reasons before touching content ---
+  if (message.stop_reason === "refusal") {
+    console.error(
+      "The model declined to process this request (stop_reason: refusal). " +
+        "Verify the image is an ultrasound report and try again."
+    );
+    process.exit(1);
+  }
+  if (message.stop_reason === "max_tokens") {
+    console.error(
+      "Warning: response was truncated (stop_reason: max_tokens); extraction may be incomplete."
+    );
+  }
+
+  const textBlock = (message.content ?? []).find((b) => b.type === "text");
+  if (!textBlock) {
+    console.error("No text content in API response:");
+    console.error(JSON.stringify(message, null, 2).slice(0, 2000));
+    process.exit(1);
+  }
+
+  let result;
+  try {
+    result = JSON.parse(textBlock.text);
+  } catch (err) {
+    console.error(`Model output was not valid JSON (${err.message}):`);
+    console.error(textBlock.text.slice(0, 2000));
+    process.exit(1);
+  }
+
+  // --- Derived metrics (computed here, never by the model) ---
+  const derived = computeDiscordance(result.babies);
+
+  const output = {
+    ...result,
+    derived: {
+      efw_discordance_percent: derived.efw_discordance_percent,
+      efw_discordance_clinically_significant: derived.clinically_significant,
+      efw_discordance_note: derived.note,
+      discordance_threshold_percent: DISCORDANCE_THRESHOLD_PERCENT,
+    },
+  };
+
+  console.log(JSON.stringify(output, null, 2));
+  printSummary(result, derived);
+
+  if (message.usage) {
+    console.error(
+      `\n[tokens] input=${message.usage.input_tokens} output=${message.usage.output_tokens}`
+    );
+  }
+}
+
+main().catch((err) => {
+  console.error(`Unexpected error: ${err?.stack ?? err}`);
+  process.exit(1);
+});
