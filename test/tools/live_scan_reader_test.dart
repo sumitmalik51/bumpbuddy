@@ -41,13 +41,62 @@ void main() {
     expect(smallParts.length, 1);
   });
 
+  test('mergePages: field-wise first-non-null, babies unified by label', () {
+    final page1 = {
+      'report_date': '2026-07-19',
+      'gestational_age_on_report': '35 w + 6 d',
+      'twins_detected': true,
+      'babies': [
+        {'label': 'A', 'efw_grams': 3030, 'fhr_bpm': 126, 'dvp_cm': 6.1},
+        {'label': 'B', 'efw_grams': 2536, 'fhr_bpm': null, 'dvp_cm': null},
+      ],
+      'printed_efw_discordance_percent': 16.3,
+      'impression': null,
+      'flags': ['DCDA documented'],
+      'confidence_notes': 'Fetus B clinical not on this page',
+    };
+    // Page 2 MIS-LABELS Fetus B's block as "A" (observed on real reports
+    // when a photo starts mid-way through Fetus A's section) — the merge
+    // must recognise the weight fingerprint and reassign it to B.
+    final page2 = {
+      'report_date': null,
+      'gestational_age_on_report': null,
+      'twins_detected': true,
+      'babies': [
+        {'label': 'A', 'efw_grams': 2536, 'fhr_bpm': 138, 'dvp_cm': 2.2},
+      ],
+      'printed_efw_discordance_percent': 16.3,
+      'impression': 'DCDA live IUP',
+      'flags': ['DCDA documented', 'page starts mid-report'],
+      'confidence_notes': null,
+    };
+    final merged = ScanReader.mergePages([page1, page2]);
+    final babies = (merged['babies'] as List).cast<Map<String, dynamic>>();
+    expect(babies.length, 2);
+    final a = babies.firstWhere((b) => b['label'] == 'A');
+    final b = babies.firstWhere((b) => b['label'] == 'B');
+    expect(a['fhr_bpm'], 126);
+    expect(b['efw_grams'], 2536);
+    expect(b['fhr_bpm'], 138); // filled from page 2
+    expect(b['dvp_cm'], 2.2); // filled from page 2
+    expect(merged['report_date'], '2026-07-19');
+    expect(merged['impression'], 'DCDA live IUP');
+    expect(
+        (merged['flags'] as List)
+            .any((f) => (f as String).contains('Reassigned')),
+        isTrue,
+        reason: 'relabeling must be disclosed in flags');
+    final derived = ScanReader.computeDiscordance(merged);
+    expect(derived['efw_discordance_percent'], 16.3);
+  });
+
   test(
     'LIVE: extracts BOTH twins from the real growth-scan photo',
     () async {
       final result = await ScanReader.extract(
         config: AiConfig(
             endpoint: endpoint, deployment: deployment, apiKey: apiKey),
-        image: File(imagePath),
+        images: [File(imagePath)],
         twinsHint: true,
       );
 
@@ -78,5 +127,36 @@ void main() {
         ? false
         : 'Set AZURE_OPENAI_* and SCAN_TEST_IMAGE env vars to run live',
     timeout: const Timeout(Duration(minutes: 6)),
+  );
+
+  final imagePath2 = Platform.environment['SCAN_TEST_IMAGE2'] ?? '';
+  test(
+    'LIVE: merges a TWO-PAGE report into one complete extraction',
+    () async {
+      final result = await ScanReader.extract(
+        config: AiConfig(
+            endpoint: endpoint, deployment: deployment, apiKey: apiKey),
+        images: [File(imagePath), File(imagePath2)],
+        twinsHint: true,
+      );
+      final babies =
+          (result['babies'] as List).cast<Map<String, dynamic>>();
+      expect(babies.length, 2);
+      final a = babies.firstWhere((b) => b['label'] == 'A');
+      final b = babies.firstWhere((b) => b['label'] == 'B');
+
+      // Page 1 carries the growth tables; page 2 carries Fetus B's full
+      // clinical block (FHR 138, placenta grade 2, MVP 2.2 cm).
+      expect(a['efw_grams'], 3030);
+      expect(b['efw_grams'], 2536);
+      expect(b['fhr_bpm'], 138, reason: 'Fetus B FHR is only on page 2');
+      expect(b['dvp_cm'], 2.2, reason: 'Fetus B MVP is only on page 2');
+      expect((b['placenta_grade'] ?? '').toString().toLowerCase(),
+          contains('2'));
+    },
+    skip: (configured && imagePath2.isNotEmpty && File(imagePath2).existsSync())
+        ? false
+        : 'Set AZURE_OPENAI_*, SCAN_TEST_IMAGE and SCAN_TEST_IMAGE2 to run live',
+    timeout: const Timeout(Duration(minutes: 8)),
   );
 }

@@ -8,6 +8,7 @@ import '../store.dart';
 import '../weekly_content.dart';
 import 'growth_screen.dart';
 import 'kick_counter_screen.dart';
+import 'scan_read_screen.dart';
 import 'weight_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -80,20 +81,40 @@ class DashboardScreen extends StatelessWidget {
         break;
       }
     }
-    return Card(
-      color: scheme.surfaceContainerHigh,
-      child: ListTile(
-        onTap: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const GrowthScreen())),
-        leading: CircleAvatar(
-          backgroundColor: scheme.tertiaryContainer,
-          child:
-              Icon(Icons.show_chart, color: scheme.onTertiaryContainer),
+    return Column(
+      children: [
+        Card(
+          color: scheme.primaryContainer,
+          child: ListTile(
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ScanReadScreen())),
+            leading: CircleAvatar(
+              backgroundColor: scheme.primary,
+              child: Icon(Icons.auto_awesome, color: scheme.onPrimary),
+            ),
+            title: const Text('Read a scan report',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: const Text(
+                'Photograph the pages — AI fills in the measurements'),
+            trailing: const Icon(Icons.chevron_right),
+          ),
         ),
-        title: const Text('Growth'),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
-      ),
+        const SizedBox(height: 16),
+        Card(
+          color: scheme.surfaceContainerHigh,
+          child: ListTile(
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const GrowthScreen())),
+            leading: CircleAvatar(
+              backgroundColor: scheme.tertiaryContainer,
+              child: Icon(Icons.show_chart, color: scheme.onTertiaryContainer),
+            ),
+            title: const Text('Growth'),
+            subtitle: Text(subtitle),
+            trailing: const Icon(Icons.chevron_right),
+          ),
+        ),
+      ],
     );
   }
 

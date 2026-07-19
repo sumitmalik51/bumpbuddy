@@ -232,14 +232,36 @@ extension RecordCategoryInfo on RecordCategory {
       };
 }
 
+class RecordAttachment {
+  final String fileName;
+  final String filePath; // copy inside the app's documents dir (mobile only)
+  const RecordAttachment({required this.fileName, required this.filePath});
+
+  bool get isImage {
+    final n = (fileName.isNotEmpty ? fileName : filePath).toLowerCase();
+    return n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.png') ||
+        n.endsWith('.webp');
+  }
+
+  Map<String, dynamic> toJson() =>
+      {'fileName': fileName, 'filePath': filePath};
+
+  factory RecordAttachment.fromJson(Map<String, dynamic> j) =>
+      RecordAttachment(
+        fileName: (j['fileName'] ?? '') as String,
+        filePath: (j['filePath'] ?? '') as String,
+      );
+}
+
 class RecordItem {
   final String id;
   DateTime date;
   RecordCategory category;
   String title;
   String notes;
-  String fileName; // original attachment name
-  String filePath; // copy inside the app's documents dir (mobile only)
+  List<RecordAttachment> attachments; // report pages, in order
   String aiJson; // AI extraction result (scan reader), empty if not run
 
   RecordItem({
@@ -248,20 +270,14 @@ class RecordItem {
     required this.category,
     required this.title,
     this.notes = '',
-    this.fileName = '',
-    this.filePath = '',
+    List<RecordAttachment>? attachments,
     this.aiJson = '',
-  });
+  }) : attachments = attachments ?? [];
 
-  bool get hasAttachment => filePath.isNotEmpty;
+  bool get hasAttachment => attachments.isNotEmpty;
 
-  bool get isImageAttachment {
-    final n = (fileName.isNotEmpty ? fileName : filePath).toLowerCase();
-    return n.endsWith('.jpg') ||
-        n.endsWith('.jpeg') ||
-        n.endsWith('.png') ||
-        n.endsWith('.webp');
-  }
+  List<RecordAttachment> get imageAttachments =>
+      attachments.where((a) => a.isImage).toList();
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -269,21 +285,35 @@ class RecordItem {
         'category': category.name,
         'title': title,
         'notes': notes,
-        'fileName': fileName,
-        'filePath': filePath,
+        'attachments': attachments.map((a) => a.toJson()).toList(),
+        // Legacy single-attachment fields kept for downgrade safety.
+        'fileName': attachments.isEmpty ? '' : attachments.first.fileName,
+        'filePath': attachments.isEmpty ? '' : attachments.first.filePath,
         'aiJson': aiJson,
       };
 
-  factory RecordItem.fromJson(Map<String, dynamic> j) => RecordItem(
-        id: j['id'] as String,
-        date: DateTime.parse(j['date'] as String),
-        category: RecordCategory.values.byName(j['category'] as String),
-        title: j['title'] as String,
-        notes: (j['notes'] ?? '') as String,
-        fileName: (j['fileName'] ?? '') as String,
-        filePath: (j['filePath'] ?? '') as String,
-        aiJson: (j['aiJson'] ?? '') as String,
-      );
+  factory RecordItem.fromJson(Map<String, dynamic> j) {
+    var attachments = ((j['attachments'] ?? []) as List)
+        .map((a) => RecordAttachment.fromJson(a as Map<String, dynamic>))
+        .toList();
+    // Migrate pre-multi-photo records.
+    final legacyPath = (j['filePath'] ?? '') as String;
+    if (attachments.isEmpty && legacyPath.isNotEmpty) {
+      attachments = [
+        RecordAttachment(
+            fileName: (j['fileName'] ?? '') as String, filePath: legacyPath),
+      ];
+    }
+    return RecordItem(
+      id: j['id'] as String,
+      date: DateTime.parse(j['date'] as String),
+      category: RecordCategory.values.byName(j['category'] as String),
+      title: j['title'] as String,
+      notes: (j['notes'] ?? '') as String,
+      attachments: attachments,
+      aiJson: (j['aiJson'] ?? '') as String,
+    );
+  }
 }
 
 class WeightEntry {

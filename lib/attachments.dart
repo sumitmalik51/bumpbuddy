@@ -31,38 +31,47 @@ class Attachments {
     return (fileName: originalName, filePath: dest);
   }
 
-  /// Take a photo with the camera.
-  static Future<({String fileName, String filePath})?> fromCamera(
+  /// Take a photo with the camera (one page at a time).
+  static Future<List<({String fileName, String filePath})>> fromCamera(
       String recordId) async {
-    if (!supported) return null;
+    if (!supported) return const [];
     final shot = await ImagePicker().pickImage(
-        source: ImageSource.camera, maxWidth: 2400, imageQuality: 88);
-    if (shot == null) return null;
-    return _copyIn(shot.path, shot.name, recordId);
+        source: ImageSource.camera, maxWidth: 3600, imageQuality: 90);
+    if (shot == null) return const [];
+    final copied = await _copyIn(shot.path, shot.name, recordId);
+    return copied == null ? const [] : [copied];
   }
 
-  /// Pick an image from the gallery.
-  static Future<({String fileName, String filePath})?> fromGallery(
+  /// Pick one or more images from the gallery.
+  static Future<List<({String fileName, String filePath})>> fromGallery(
       String recordId) async {
-    if (!supported) return null;
-    final img = await ImagePicker().pickImage(
-        source: ImageSource.gallery, maxWidth: 2400, imageQuality: 88);
-    if (img == null) return null;
-    return _copyIn(img.path, img.name, recordId);
+    if (!supported) return const [];
+    final images = await ImagePicker()
+        .pickMultiImage(maxWidth: 3600, imageQuality: 90);
+    final out = <({String fileName, String filePath})>[];
+    for (final img in images) {
+      final copied = await _copyIn(img.path, img.name, recordId);
+      if (copied != null) out.add(copied);
+    }
+    return out;
   }
 
-  /// Pick a document (PDF or image).
-  static Future<({String fileName, String filePath})?> fromFiles(
+  /// Pick one or more documents (PDF or image).
+  static Future<List<({String fileName, String filePath})>> fromFiles(
       String recordId) async {
-    if (!supported) return null;
+    if (!supported) return const [];
     const group = XTypeGroup(
       label: 'Reports',
       extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
       mimeTypes: ['application/pdf', 'image/*'],
     );
-    final f = await openFile(acceptedTypeGroups: const [group]);
-    if (f == null) return null;
-    return _copyIn(f.path, f.name, recordId);
+    final files = await openFiles(acceptedTypeGroups: const [group]);
+    final out = <({String fileName, String filePath})>[];
+    for (final f in files) {
+      final copied = await _copyIn(f.path, f.name, recordId);
+      if (copied != null) out.add(copied);
+    }
+    return out;
   }
 
   /// Open an attachment with the system viewer (PDFs etc.).

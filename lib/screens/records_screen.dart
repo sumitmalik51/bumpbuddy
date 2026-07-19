@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,11 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../ai/ai_config.dart';
-import '../ai/scan_reader.dart';
 import '../attachments.dart';
 import '../models.dart';
 import '../store.dart';
+import 'scan_read_screen.dart';
+import 'widgets/ai_result_summary.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -32,10 +31,26 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Records vault')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Add record'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (Attachments.supported)
+            FloatingActionButton.extended(
+              heroTag: 'scan',
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ScanReadScreen())),
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Read a scan'),
+            ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add',
+            onPressed: () => _openEditor(context),
+            icon: const Icon(Icons.add),
+            label: const Text('Add record'),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -73,10 +88,11 @@ class _RecordsScreenState extends State<RecordsScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.folder_open, size: 64, color: scheme.outline),
+                          Icon(Icons.folder_open,
+                              size: 64, color: scheme.outline),
                           const SizedBox(height: 16),
                           const Text(
-                            'Keep every scan, report and prescription organized in one place.\n\nAI reading of scans arrives in the next version — the vault is ready for it.',
+                            'Keep every scan, report and prescription in one place.\n\nTap "Read a scan" to photograph a report and let AI fill in the details.',
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -84,22 +100,23 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 150),
                     itemCount: items.length,
                     itemBuilder: (context, i) {
                       final r = items[i];
+                      final thumb = r.imageAttachments.isNotEmpty
+                          ? r.imageAttachments.first
+                          : null;
                       return Card(
                         color: scheme.surfaceContainerHigh,
                         margin: const EdgeInsets.only(bottom: 10),
                         child: ListTile(
                           onTap: () => _openEditor(context, existing: r),
-                          leading: (!kIsWeb &&
-                                  r.hasAttachment &&
-                                  r.isImageAttachment)
+                          leading: (!kIsWeb && thumb != null)
                               ? ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: Image.file(
-                                    File(r.filePath),
+                                    File(thumb.filePath),
                                     width: 44,
                                     height: 44,
                                     fit: BoxFit.cover,
@@ -119,10 +136,14 @@ class _RecordsScreenState extends State<RecordsScreen> {
                           subtitle: Text([
                             '${r.category.label} · ${DateFormat('d MMM yyyy').format(r.date)}'
                                 '${r.aiJson.isNotEmpty ? ' · ✦ AI read' : ''}',
-                            if (r.fileName.isNotEmpty) r.fileName,
+                            if (r.attachments.isNotEmpty)
+                              r.attachments.length == 1
+                                  ? r.attachments.first.fileName
+                                  : '${r.attachments.length} pages',
                             if (r.notes.isNotEmpty) r.notes,
                           ].join('\n')),
-                          isThreeLine: r.fileName.isNotEmpty || r.notes.isNotEmpty,
+                          isThreeLine:
+                              r.attachments.isNotEmpty || r.notes.isNotEmpty,
                           trailing: IconButton(
                             icon: const Icon(Icons.delete_outline),
                             onPressed: () => store.deleteRecord(r.id),
@@ -157,118 +178,6 @@ class _RecordsScreenState extends State<RecordsScreen> {
   }
 }
 
-class _AiResultSummary extends StatelessWidget {
-  final String aiJson;
-  const _AiResultSummary({required this.aiJson});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    Map<String, dynamic> r;
-    try {
-      r = jsonDecode(aiJson) as Map<String, dynamic>;
-    } catch (_) {
-      return const SizedBox.shrink();
-    }
-    final babies =
-        ((r['babies'] ?? []) as List).cast<Map<String, dynamic>>();
-    final derived = (r['derived'] ?? {}) as Map<String, dynamic>;
-    // Prefer our own computed discordance; fall back to the value the
-    // report itself prints when we could not compute one.
-    final computed = derived['efw_discordance_percent'];
-    final printed = r['printed_efw_discordance_percent'];
-    final pct = computed ?? printed;
-    final significant = computed != null
-        ? derived['efw_discordance_clinically_significant'] == true
-        : (printed is num && printed >= 20);
-
-    String fmt(dynamic v, String unit) => v == null ? '—' : '$v $unit';
-
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.auto_awesome, size: 16, color: scheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                'AI reading · ${r['gestational_age_on_report'] ?? r['report_date'] ?? ''}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          for (final b in babies) ...[
-            Text('Baby ${b['label']}'
-                '${b['presentation'] != null ? ' · ${b['presentation']}' : ''}',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: scheme.primary)),
-            Padding(
-              padding: const EdgeInsets.only(left: 8, top: 2, bottom: 6),
-              child: Text(
-                'EFW ${fmt(b['efw_grams'], 'g')} · HC ${fmt(b['hc_mm'], 'mm')} · '
-                'AC ${fmt(b['ac_mm'], 'mm')} · FL ${fmt(b['fl_mm'], 'mm')} · '
-                'FHR ${fmt(b['fhr_bpm'], 'bpm')}\n'
-                'Placenta: ${b['placenta'] ?? '—'}'
-                '${b['placenta_grade'] != null ? ' (${b['placenta_grade']})' : ''} · '
-                'Fluid: ${b['liquor_afi_cm'] != null ? 'AFI ${b['liquor_afi_cm']} cm' : b['dvp_cm'] != null ? 'DVP ${b['dvp_cm']} cm' : '—'}',
-                style: const TextStyle(fontSize: 12.5, height: 1.5),
-              ),
-            ),
-          ],
-          if (pct != null)
-            Container(
-              margin: const EdgeInsets.only(top: 4),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: significant
-                    ? scheme.errorContainer
-                    : scheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'Twin weight difference: $pct%'
-                '${significant ? ' — worth discussing with your doctor' : ' (below the 20% attention level)'}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: significant
-                      ? scheme.onErrorContainer
-                      : scheme.onSecondaryContainer,
-                ),
-              ),
-            ),
-          if (r['confidence_notes'] != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text('Note: ${r['confidence_notes']}',
-                  style: TextStyle(
-                      fontSize: 11.5, color: scheme.onSurfaceVariant)),
-            ),
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              'Extracted from the report photo — verify against the original. Not medical advice.',
-              style:
-                  TextStyle(fontSize: 11, color: scheme.outline),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _RecordEditor extends StatefulWidget {
   final RecordItem? existing;
   const _RecordEditor({this.existing});
@@ -282,10 +191,8 @@ class _RecordEditorState extends State<_RecordEditor> {
   late final TextEditingController _notes;
   late RecordCategory _category;
   late DateTime _date;
-  late String _fileName;
-  late String _filePath;
+  late List<RecordAttachment> _attachments;
   late String _aiJson;
-  bool _aiRunning = false;
   late final String _recordId;
 
   @override
@@ -296,74 +203,10 @@ class _RecordEditorState extends State<_RecordEditor> {
     _notes = TextEditingController(text: e?.notes ?? '');
     _category = e?.category ?? RecordCategory.ultrasound;
     _date = e?.date ?? DateTime.now();
-    _fileName = e?.fileName ?? '';
-    _filePath = e?.filePath ?? '';
+    _attachments = List.of(e?.attachments ?? const []);
     _aiJson = e?.aiJson ?? '';
     _recordId = e?.id ?? context.read<AppStore>().newId();
     _title.addListener(() => setState(() {}));
-  }
-
-  static bool _isImagePath(String p) {
-    final n = p.toLowerCase();
-    return n.endsWith('.jpg') ||
-        n.endsWith('.jpeg') ||
-        n.endsWith('.png') ||
-        n.endsWith('.webp');
-  }
-
-  Future<void> _readWithAi() async {
-    final store = context.read<AppStore>();
-    final messenger = ScaffoldMessenger.of(context);
-    final config = await AiConfigStore.load();
-    if (!config.isComplete) {
-      messenger.showSnackBar(const SnackBar(
-        content:
-            Text('Set up your Azure connection first: More → AI scan reading'),
-      ));
-      return;
-    }
-    setState(() => _aiRunning = true);
-    try {
-      final result = await ScanReader.extract(
-        config: config,
-        image: File(_filePath),
-        twinsHint: store.profile?.isTwins ?? false,
-      );
-      if (!mounted) return;
-      setState(() {
-        _aiJson = jsonEncode(result);
-        _aiRunning = false;
-      });
-      messenger.showSnackBar(const SnackBar(
-          content: Text('Scan read — review the values below, then Save.')));
-    } on ScanReaderException catch (e) {
-      if (!mounted) return;
-      setState(() => _aiRunning = false);
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _aiRunning = false);
-      messenger.showSnackBar(SnackBar(content: Text('AI reading failed: $e')));
-    }
-  }
-
-  Future<void> _attach(
-      Future<({String fileName, String filePath})?> Function(String) pick)
-      async {
-    final result = await pick(_recordId);
-    if (result != null && mounted) {
-      // Replace any previous copy.
-      if (_filePath.isNotEmpty && _filePath != result.filePath) {
-        await Attachments.delete(_filePath);
-      }
-      setState(() {
-        _fileName = result.fileName;
-        _filePath = result.filePath;
-        if (_title.text.trim().isEmpty) {
-          _title.text = result.fileName;
-        }
-      });
-    }
   }
 
   @override
@@ -373,9 +216,25 @@ class _RecordEditorState extends State<_RecordEditor> {
     super.dispose();
   }
 
+  Future<void> _attach(
+      Future<List<({String fileName, String filePath})>> Function(String)
+          pick) async {
+    final results = await pick(_recordId);
+    if (results.isEmpty || !mounted) return;
+    setState(() {
+      _attachments.addAll(results
+          .map((r) =>
+              RecordAttachment(fileName: r.fileName, filePath: r.filePath)));
+      if (_title.text.trim().isEmpty) {
+        _title.text = results.first.fileName;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.read<AppStore>();
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -455,57 +314,69 @@ class _RecordEditorState extends State<_RecordEditor> {
                     child: OutlinedButton.icon(
                       onPressed: () => _attach(Attachments.fromFiles),
                       icon: const Icon(Icons.attach_file, size: 18),
-                      label: const Text('File'),
+                      label: const Text('Files'),
                     ),
                   ),
                 ],
               ),
-              if (_filePath.isNotEmpty)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.description_outlined),
-                  title: Text(_fileName.isEmpty ? 'Attachment' : _fileName,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: const Text('Tap to open'),
-                  onTap: () => Attachments.open(_filePath),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: 'Remove attachment',
-                    onPressed: () async {
-                      await Attachments.delete(_filePath);
-                      if (mounted) {
-                        setState(() {
-                          _filePath = '';
-                          _fileName = '';
-                        });
-                      }
-                    },
+              if (_attachments.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    height: 76,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _attachments.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final a = _attachments[i];
+                        return Stack(
+                          children: [
+                            GestureDetector(
+                              onTap: () => Attachments.open(a.filePath),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: a.isImage && !kIsWeb
+                                    ? Image.file(File(a.filePath),
+                                        width: 68,
+                                        height: 68,
+                                        fit: BoxFit.cover)
+                                    : Container(
+                                        width: 68,
+                                        height: 68,
+                                        color:
+                                            scheme.surfaceContainerHighest,
+                                        child: const Icon(
+                                            Icons.description_outlined),
+                                      ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 0,
+                              right: 0,
+                              child: GestureDetector(
+                                onTap: () async {
+                                  await Attachments.delete(a.filePath);
+                                  if (mounted) {
+                                    setState(() => _attachments.removeAt(i));
+                                  }
+                                },
+                                child: CircleAvatar(
+                                  radius: 10,
+                                  backgroundColor: scheme.inverseSurface,
+                                  child: Icon(Icons.close,
+                                      size: 12,
+                                      color: scheme.onInverseSurface),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
-              if (_filePath.isNotEmpty &&
-                  _category == RecordCategory.ultrasound &&
-                  _isImagePath(_filePath)) ...[
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.tonalIcon(
-                    onPressed: _aiRunning ? null : _readWithAi,
-                    icon: _aiRunning
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.auto_awesome, size: 18),
-                    label: Text(_aiRunning
-                        ? 'Reading scan… (can take a minute)'
-                        : (_aiJson.isEmpty
-                            ? 'Read with AI'
-                            : 'Re-read with AI')),
-                  ),
-                ),
-                if (_aiJson.isNotEmpty)
-                  _AiResultSummary(aiJson: _aiJson),
-              ],
+              if (_aiJson.isNotEmpty) AiResultSummary(aiJson: _aiJson),
             ] else
               Text(
                 'Photo/PDF attachments work in the mobile app.',
@@ -526,8 +397,7 @@ class _RecordEditorState extends State<_RecordEditor> {
                           category: _category,
                           title: _title.text.trim(),
                           notes: _notes.text.trim(),
-                          fileName: _fileName,
-                          filePath: _filePath,
+                          attachments: _attachments,
                           aiJson: _aiJson,
                         ));
                         Navigator.pop(context);

@@ -184,7 +184,7 @@ Non-negotiable rules:
 5. INDIAN RADIOLOGY CONVENTIONS are common: EFW usually in grams, sometimes with a tolerance or range ("1897 +/- 277 gm") — use the central value for efw_grams and keep the full text in efw_raw. Biometry tables often show a measurement column AND a week-equivalent column — extract the measurement, and use *_raw only if the measurement column is missing or unreadable. "Liquor" means amniotic fluid. Placental grading appears as Grade 0-III (or 1-3).
 6. TWIN LABELS. Babies may be labelled "Twin A/Twin B", "Fetus 1/Fetus 2", "F1/F2", "Baby A/Baby B", or similar. Normalize to "A", "B", "C"... in document order (Twin A / Fetus 1 / F1 -> "A"). Set twins_detected to true only if the report clearly documents more than one fetus. Never invent a second fetus.
 7. FLAGS are short, factual, and derived only from what the report documents or from data-quality issues (e.g. "AFI recorded for only one fetus", "biometry table partially cut off"). No advice, no severity judgements.
-8. MULTI-FETUS COMPLETENESS. Twin reports repeat an identical table or block per fetus — commonly stacked vertically (Fetus 1's table directly above Fetus 2's) or in consecutive sections; a photo may also begin mid-way through one fetus's section. Extract EVERY fetus's values with equal care. Before finalizing, self-check: if twins_detected is true but one fetus has all-null biometry while another is fully populated, RE-EXAMINE the image for the sparse fetus's table or block — it is usually present and just as legible as the first. Attribute each clinical value (FHR, presentation, placenta, amniotic fluid) to the fetus in whose labelled section it is printed — never attach the first values you encounter to Fetus A by default. If attribution is genuinely unclear, leave the field null and record the ambiguity in flags.
+8. MULTI-FETUS COMPLETENESS. Twin reports repeat an identical table or block per fetus — commonly stacked vertically (Fetus 1's table directly above Fetus 2's) or in consecutive sections; a photo may also begin mid-way through one fetus's section. Extract EVERY fetus's values with equal care. Before finalizing, self-check: if twins_detected is true but one fetus has all-null biometry while another is fully populated, RE-EXAMINE the image for the sparse fetus's table or block — it is usually present and just as legible as the first. Attribute each clinical value (FHR, presentation, placenta, amniotic fluid) to the fetus in whose labelled section it is printed — never attach the first values you encounter to Fetus A by default. If attribution is genuinely unclear, leave the field null and record the ambiguity in flags. Each fetus's section typically includes its own clinical line-items — FHR, presentation, placenta location/grade, amniotic fluid (MVP/DVP/AFI), umbilical Doppler — in addition to its biometry table: extract ALL of them for EVERY fetus whose section appears on any page; do not stop after the biometry numbers. Before finalizing, walk each fetus's field list once more against the images and fill anything you skipped. Layout hint: on machine-generated reports each fetus's section often ENDS with a sentence like "Fetus X is towards maternal right/left side" — the clinical values and biometry printed ABOVE that sentence (and below the previous fetus's closing sentence) belong to Fetus X, even when the section heading itself is not visible on the page.
 9. STRUCTURE/FLAGS CONSISTENCY. Never mention a numeric value in flags or confidence_notes (for example a printed discordance percentage or an EFW) while leaving the corresponding structured field null. If it is legible enough to mention, it is legible enough to extract.
 
 Your entire output must conform to the provided JSON schema.''';
@@ -209,47 +209,227 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
     return prompt;
   }
 
-  /// Runs extraction on a report photo. Throws [ScanReaderException] with a
-  /// user-friendly message on failure.
+  /// Verifies endpoint + deployment + key with a minimal text-only call.
+  /// Returns null on success, or a user-friendly error message.
+  static Future<String?> testConnection(AiConfig config) async {
+    final url = Uri.parse(
+        '${config.normalizedEndpoint}/openai/deployments/${config.deployment.trim()}/chat/completions?api-version=$_apiVersion');
+    try {
+      final res = await http
+          .post(url,
+              headers: {
+                'content-type': 'application/json',
+                'api-key': config.apiKey.trim(),
+              },
+              body: jsonEncode({
+                'messages': [
+                  {'role': 'user', 'content': 'Reply with the word: ok'}
+                ],
+                'max_completion_tokens': 500,
+              }))
+          .timeout(const Duration(seconds: 60));
+      if (res.statusCode == 200) return null;
+      if (res.statusCode == 401) return 'Key rejected (401) — check the API key.';
+      if (res.statusCode == 404) {
+        return 'Deployment "${config.deployment}" not found (404) — use the deployment NAME from Foundry, and the resource endpoint (not the project URL).';
+      }
+      return 'Azure returned HTTP ${res.statusCode}.';
+    } catch (e) {
+      return 'Could not reach the endpoint: $e';
+    }
+  }
+
+  /// Runs extraction on one or more photos of the SAME report. Multi-page
+  /// reports are read page-by-page IN PARALLEL (each page gets the model's
+  /// full attention — validated as far more reliable than one mega-request)
+  /// and merged deterministically in code. Throws [ScanReaderException]
+  /// with a user-friendly message on failure.
   static Future<Map<String, dynamic>> extract({
     required AiConfig config,
-    required File image,
+    required List<File> images,
     required bool twinsHint,
   }) async {
-    final ext = image.path
-        .substring(image.path.lastIndexOf('.'))
-        .toLowerCase();
-    final mediaType = _mediaTypes[ext];
-    if (mediaType == null) {
-      throw ScanReaderException(
-          'Only JPG, PNG and WebP photos can be read (got $ext).');
+    if (images.isEmpty) {
+      throw ScanReaderException('Attach at least one report photo first.');
     }
+    if (images.length > 4) {
+      throw ScanReaderException(
+          'Up to 4 report pages per reading, please — split very long reports.');
+    }
+    for (final image in images) {
+      final ext =
+          image.path.substring(image.path.lastIndexOf('.')).toLowerCase();
+      if (_mediaTypes[ext] == null) {
+        throw ScanReaderException(
+            'Only JPG, PNG and WebP photos can be read (got $ext).');
+      }
+    }
+
+    if (images.length == 1) {
+      final result = await _extractPage(config, images.first, twinsHint,
+          pageIndex: 0, pageCount: 1);
+      result['derived'] = computeDiscordance(result);
+      return result;
+    }
+
+    final pages = await Future.wait([
+      for (var i = 0; i < images.length; i++)
+        _extractPage(config, images[i], twinsHint,
+            pageIndex: i, pageCount: images.length),
+    ]);
+    final merged = mergePages(pages);
+    merged['derived'] = computeDiscordance(merged);
+    return merged;
+  }
+
+  /// Field-wise merge of per-page extractions: first non-null wins (page
+  /// order), babies unified by label, flags unioned. Pure — unit-tested.
+  ///
+  /// Includes EFW-anchored relabeling: pages that start mid-way through one
+  /// fetus's section sometimes get the NEXT fetus's block attributed to the
+  /// wrong label (observed on real reports). Pages that document BOTH babies
+  /// with EFWs anchor each label's weight; a page-baby whose EFW clearly
+  /// matches a DIFFERENT label's anchor (and contradicts its claimed one)
+  /// is reassigned before merging.
+  static Map<String, dynamic> mergePages(List<Map<String, dynamic>> pages) {
+    dynamic firstNonNull(Iterable<dynamic> values) =>
+        values.firstWhere((v) => v != null, orElse: () => null);
+
+    List<Map<String, dynamic>> babiesOf(Map<String, dynamic> page) =>
+        ((page['babies'] ?? []) as List)
+            .map((b) => (b as Map).cast<String, dynamic>())
+            .toList();
+
+    // Anchor EFWs from pages that document 2+ babies with weights — those
+    // pages carry explicitly labelled per-fetus tables and are trustworthy.
+    final anchors = <String, num>{};
+    for (final page in pages) {
+      final babies = babiesOf(page)
+          .where((b) => b['efw_grams'] is num)
+          .toList();
+      if (babies.length >= 2) {
+        for (final b in babies) {
+          anchors.putIfAbsent((b['label'] ?? 'A') as String,
+              () => b['efw_grams'] as num);
+        }
+      }
+    }
+
+    final flags = <String>{};
+
+    String resolveLabel(Map<String, dynamic> baby) {
+      final claimed = (baby['label'] ?? 'A') as String;
+      final efw = baby['efw_grams'];
+      if (anchors.length < 2 || efw is! num) return claimed;
+      double relDiff(num anchor) => ((efw - anchor).abs() / anchor);
+      String best = claimed;
+      double bestDiff = double.infinity;
+      anchors.forEach((label, anchor) {
+        final d = relDiff(anchor);
+        if (d < bestDiff) {
+          bestDiff = d;
+          best = label;
+        }
+      });
+      final claimedAnchor = anchors[claimed];
+      final claimedDiff =
+          claimedAnchor == null ? double.infinity : relDiff(claimedAnchor);
+      if (best != claimed && bestDiff <= 0.05 && claimedDiff > 0.10) {
+        flags.add(
+            'Reassigned one page\'s values from Baby $claimed to Baby $best (weights matched Baby $best\'s growth table).');
+        return best;
+      }
+      return claimed;
+    }
+
+    final babiesByLabel = <String, Map<String, dynamic>>{};
+    for (final page in pages) {
+      for (final baby in babiesOf(page)) {
+        final label = resolveLabel(baby);
+        final target = babiesByLabel.putIfAbsent(
+            label, () => <String, dynamic>{'label': label});
+        for (final e in baby.entries) {
+          if (e.key == 'label') continue;
+          target[e.key] ??= e.value;
+        }
+      }
+    }
+    final labels = babiesByLabel.keys.toList()..sort();
+
+    for (final page in pages) {
+      flags.addAll(((page['flags'] ?? []) as List).cast<String>());
+    }
+    final notes = <String>[];
+    for (var i = 0; i < pages.length; i++) {
+      final n = pages[i]['confidence_notes'];
+      if (n is String && n.isNotEmpty) notes.add('Page ${i + 1}: $n');
+    }
+    final impressions = pages
+        .map((p) => p['impression'])
+        .whereType<String>()
+        .where((s) => s.isNotEmpty)
+        .toList();
+    impressions.sort((a, b) => b.length.compareTo(a.length));
+
+    return {
+      'report_date': firstNonNull(pages.map((p) => p['report_date'])),
+      'gestational_age_on_report':
+          firstNonNull(pages.map((p) => p['gestational_age_on_report'])),
+      'twins_detected': pages.any((p) => p['twins_detected'] == true),
+      'babies': [for (final l in labels) babiesByLabel[l]],
+      'printed_efw_discordance_percent': firstNonNull(
+          pages.map((p) => p['printed_efw_discordance_percent'])),
+      'impression': impressions.isEmpty ? null : impressions.first,
+      'flags': flags.toList(),
+      'confidence_notes': notes.isEmpty ? null : notes.join(' | '),
+    };
+  }
+
+  /// Reads ONE page (with auto-tiling for large photos).
+  static Future<Map<String, dynamic>> _extractPage(
+    AiConfig config,
+    File image,
+    bool twinsHint, {
+    required int pageIndex,
+    required int pageCount,
+  }) async {
     final bytes = await image.readAsBytes();
 
     // Azure's vision pipeline downscales large photos so hard that small
     // table digits become unreadable to the model (validated on real
     // reports: a full 3213x5712 photo lost a whole fetus's biometry table;
-    // crops of the same photo read perfectly). For big images we therefore
-    // send an overview plus overlapping high-resolution tiles of the SAME
-    // page in one request.
+    // crops of the same photo read perfectly). Each page is therefore sent
+    // as an overview plus overlapping high-resolution tiles.
     final tiles = await compute(buildImagePartsB64, bytes);
-    final imageParts = tiles
-        .map((b64) => {
-              'type': 'image_url',
-              'image_url': {
-                'url': 'data:${tiles.length > 1 ? 'image/jpeg' : mediaType};base64,$b64',
-                'detail': 'high',
-              },
-            })
-        .toList();
+    final imageParts = [
+      for (final b64 in tiles)
+        {
+          'type': 'image_url',
+          'image_url': {
+            'url': 'data:image/jpeg;base64,$b64',
+            'detail': 'high',
+          },
+        },
+    ];
 
-    final tilingNote = tiles.length > 1
-        ? 'The report page is provided as ${tiles.length} images: first a full-page '
-            'overview for layout, then ${tiles.length - 1} overlapping high-resolution '
-            'crops of the SAME single page in reading order (left to right, top to '
-            'bottom). Regions repeat across crops — deduplicate; every value still '
-            'belongs to one single report page.\n\n'
-        : '';
+    var tilingNote = '';
+    if (tiles.length > 1) {
+      tilingNote =
+          'The page is provided as ${tiles.length} images: first a full-page '
+          'overview for layout, then ${tiles.length - 1} overlapping high-resolution '
+          'crops of the SAME single page in reading order (left to right, top to '
+          'bottom). Regions repeat across crops — deduplicate; every value still '
+          'belongs to one single report page.\n\n';
+    }
+    if (pageCount > 1) {
+      tilingNote =
+          'This is page ${pageIndex + 1} of $pageCount of one report; the other pages '
+          'are processed separately. Extract only what THIS page shows — a page may '
+          'begin mid-way through one fetus\'s section before another fetus\'s block '
+          'starts, so attribute values strictly by the fetus label of the section '
+          'they are printed in. Fields on other pages will be merged later; never '
+          'invent values to compensate.\n\n$tilingNote';
+    }
 
     final url = Uri.parse(
         '${config.normalizedEndpoint}/openai/deployments/${config.deployment.trim()}/chat/completions?api-version=$_apiVersion');
@@ -321,11 +501,9 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
     if (content == null || (content as String).isEmpty) {
       throw ScanReaderException('The model returned an empty extraction.');
     }
-    final result = jsonDecode(content) as Map<String, dynamic>;
-
-    // Derived, computed here — never by the model.
-    result['derived'] = computeDiscordance(result);
-    return result;
+    // Derived discordance is added by extract() after any page merge —
+    // always computed in code, never by the model.
+    return jsonDecode(content) as Map<String, dynamic>;
   }
 
   /// Inter-twin EFW discordance: (larger - smaller) / larger * 100.

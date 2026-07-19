@@ -216,7 +216,9 @@ class AppStore extends ChangeNotifier {
   Future<void> deleteRecord(String id) async {
     final i = records.indexWhere((r) => r.id == id);
     if (i >= 0) {
-      await Attachments.delete(records[i].filePath);
+      for (final a in records[i].attachments) {
+        await Attachments.delete(a.filePath);
+      }
       records.removeAt(i);
     }
     await _writeList(_kRecords, records);

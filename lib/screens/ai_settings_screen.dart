@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../ai/ai_config.dart';
+import '../ai/scan_reader.dart';
 
 class AiSettingsScreen extends StatefulWidget {
   const AiSettingsScreen({super.key});
@@ -15,6 +16,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _apiKey = TextEditingController();
   bool _loaded = false;
   bool _hideKey = true;
+  bool _testing = false;
   String? _status;
 
   @override
@@ -48,7 +50,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     await AiConfigStore.save(config);
     if (mounted) {
       setState(() => _status = config.isComplete
-          ? 'Saved. "Read with AI" is now available on ultrasound records.'
+          ? '✓ Saved. Reading scans is now one tap from the home screen.'
           : 'Saved, but some fields are empty — AI reading stays off until all three are set.');
     }
   }
@@ -115,10 +117,46 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   onPressed: _save,
                   child: const Text('Save'),
                 ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _testing
+                      ? null
+                      : () async {
+                          setState(() {
+                            _testing = true;
+                            _status = null;
+                          });
+                          final error = await ScanReader.testConnection(
+                            AiConfig(
+                              endpoint: _endpoint.text,
+                              deployment: _deployment.text,
+                              apiKey: _apiKey.text,
+                            ),
+                          );
+                          if (mounted) {
+                            setState(() {
+                              _testing = false;
+                              _status = error ??
+                                  '✓ Connected — your deployment answered. You\'re ready to read scans.';
+                            });
+                          }
+                        },
+                  icon: _testing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.wifi_tethering, size: 18),
+                  label: Text(_testing ? 'Testing…' : 'Test connection'),
+                ),
                 if (_status != null) ...[
                   const SizedBox(height: 12),
                   Text(_status!,
-                      style: TextStyle(color: scheme.primary, fontSize: 13)),
+                      style: TextStyle(
+                          color: _status!.startsWith('✓')
+                              ? scheme.primary
+                              : scheme.error,
+                          fontSize: 13)),
                 ],
                 const SizedBox(height: 16),
                 TextButton.icon(
