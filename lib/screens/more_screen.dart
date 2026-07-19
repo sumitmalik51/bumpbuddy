@@ -8,6 +8,7 @@ import '../weekly_content.dart';
 import 'ai_settings_screen.dart';
 import 'appointments_screen.dart';
 import 'edit_profile_screen.dart';
+import 'growth_screen.dart';
 import 'hospital_bag_screen.dart';
 import 'kick_counter_screen.dart';
 import 'medicines_screen.dart';
@@ -154,6 +155,8 @@ class MoreScreen extends StatelessWidget {
               'Kick counter',
               p.isTwins ? 'Count to 10 — per baby' : 'Count to 10 sessions',
               const KickCounterScreen()),
+          _navTile(context, Icons.show_chart, 'Growth',
+              'Scan-over-scan weight curves', const GrowthScreen()),
           _navTile(context, Icons.auto_awesome_outlined, 'AI scan reading',
               'Connect your Azure AI deployment', const AiSettingsScreen()),
           const SizedBox(height: 16),

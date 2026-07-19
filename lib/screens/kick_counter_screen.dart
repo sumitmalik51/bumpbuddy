@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -144,11 +145,20 @@ class _KickCounterScreenState extends State<KickCounterScreen> {
                 label: const Text('Start session'),
               ),
             ] else ...[
-              Text(
-                '$count',
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onPrimaryContainer),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: Tween(begin: 1.4, end: 1.0).animate(
+                      CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Text(
+                  '$count',
+                  key: ValueKey(count),
+                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onPrimaryContainer),
+                ),
               ),
               Text('of 10 kicks',
                   style: TextStyle(color: scheme.onPrimaryContainer)),
@@ -164,8 +174,10 @@ class _KickCounterScreenState extends State<KickCounterScreen> {
                 height: 88,
                 child: FilledButton(
                   onPressed: () async {
+                    HapticFeedback.mediumImpact();
                     setState(() => active.kicks.add(DateTime.now()));
                     if (active.kicks.length >= 10) {
+                      HapticFeedback.heavyImpact();
                       active.ended = true;
                       final messenger = ScaffoldMessenger.of(context);
                       await store.upsertKickSession(active);

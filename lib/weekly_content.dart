@@ -23,6 +23,45 @@ class WeeklyContent {
     return _weeks.firstWhere((e) => e.week == w);
   }
 
+  /// Playful fruit/veg emoji matching each week's size comparison.
+  static String emojiForWeek(int week) => switch (week.clamp(4, 40)) {
+        <= 6 => '🌱',
+        7 => '🫐',
+        8 => '🫘',
+        9 => '🍇',
+        10 => '🍊',
+        11 => '🍐',
+        12 => '🍋',
+        13 => '🫛',
+        14 => '🍋',
+        15 => '🍎',
+        16 => '🥑',
+        17 => '🥔',
+        18 => '🫑',
+        19 => '🍅',
+        20 => '🍌',
+        21 => '🥕',
+        22 => '🍈',
+        23 => '🥭',
+        24 => '🌽',
+        25 => '🥦',
+        26 => '🥒',
+        27 => '🥦',
+        28 => '🍆',
+        29 => '🍠',
+        30 => '🥬',
+        31 => '🥥',
+        32 => '🍠',
+        33 => '🍍',
+        34 => '🍈',
+        35 => '🍈',
+        36 => '🥬',
+        37 => '🍈',
+        38 => '🎃',
+        39 => '🍉',
+        _ => '🍉',
+      };
+
   static const List<WeekInfo> _weeks = [
     WeekInfo(
         week: 4,

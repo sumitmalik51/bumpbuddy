@@ -6,6 +6,7 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
+import 'growth_screen.dart';
 import 'kick_counter_screen.dart';
 import 'weight_screen.dart';
 
@@ -21,41 +22,77 @@ class DashboardScreen extends StatelessWidget {
     final guidance = PregnancyMath.deliveryGuidance(p);
     final scheme = Theme.of(context).colorScheme;
 
+    final cards = <Widget>[
+      _header(context, p, guidance.window),
+      const SizedBox(height: 16),
+      if (p.isTwins) _twinCards(context, p, info) else _singleCard(context, p, info),
+      const SizedBox(height: 16),
+      _growthCard(context, store, p),
+      const SizedBox(height: 16),
+      _todayTip(context, info),
+      const SizedBox(height: 16),
+      _nextAppointment(context, store),
+      const SizedBox(height: 16),
+      _medsToday(context, store),
+      const SizedBox(height: 16),
+      Row(
+        children: [
+          Expanded(child: _waterCard(context, store)),
+          const SizedBox(width: 16),
+          Expanded(child: _weightCard(context, store)),
+        ],
+      ),
+      const SizedBox(height: 16),
+      _kickCard(context, store, p),
+      const SizedBox(height: 24),
+      Center(
+        child: Text(
+          'Educational information only — always follow your doctor\'s advice.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: scheme.outline),
+        ),
+      ),
+      const SizedBox(height: 8),
+    ];
+
     return Scaffold(
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _header(context, p, guidance.window),
-            const SizedBox(height: 16),
-            if (p.isTwins) _twinCards(context, p, info) else _singleCard(context, p, info),
-            const SizedBox(height: 16),
-            _todayTip(context, info),
-            const SizedBox(height: 16),
-            _nextAppointment(context, store),
-            const SizedBox(height: 16),
-            _medsToday(context, store),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: _waterCard(context, store)),
-                const SizedBox(width: 16),
-                Expanded(child: _weightCard(context, store)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _kickCard(context, store, p),
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                'Educational information only — always follow your doctor\'s advice.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: scheme.outline),
-              ),
-            ),
-            const SizedBox(height: 8),
+            for (var i = 0; i < cards.length; i++)
+              _StaggeredEntrance(index: i ~/ 2, child: cards[i]),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _growthCard(BuildContext context, AppStore store, PregnancyProfile p) {
+    final scheme = Theme.of(context).colorScheme;
+    // Latest AI-read scan, if any.
+    String subtitle = p.isTwins
+        ? 'AI-read your scans to see both babies\' curves'
+        : 'AI-read your scans to see the growth curve';
+    for (final r in store.records) {
+      if (r.category == RecordCategory.ultrasound && r.aiJson.isNotEmpty) {
+        subtitle = 'Scan history & weight curves';
+        break;
+      }
+    }
+    return Card(
+      color: scheme.surfaceContainerHigh,
+      child: ListTile(
+        onTap: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const GrowthScreen())),
+        leading: CircleAvatar(
+          backgroundColor: scheme.tertiaryContainer,
+          child:
+              Icon(Icons.show_chart, color: scheme.onTertiaryContainer),
+        ),
+        title: const Text('Growth'),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }
@@ -86,7 +123,6 @@ class DashboardScreen extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [scheme.primaryContainer, scheme.tertiaryContainer],
@@ -95,7 +131,29 @@ class DashboardScreen extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Column(
+      child: _FloatingHearts(
+        color: scheme.onPrimaryContainer.withValues(alpha: 0.10),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: _headerContent(context, p, window, daysToGo, trimester,
+              countdownLabel, windowStart, windowEnd, dateFmt),
+        ),
+      ),
+    );
+  }
+
+  Widget _headerContent(
+      BuildContext context,
+      PregnancyProfile p,
+      String window,
+      int daysToGo,
+      int trimester,
+      String countdownLabel,
+      DateTime windowStart,
+      DateTime windowEnd,
+      DateFormat dateFmt) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -141,9 +199,7 @@ class DashboardScreen extends StatelessWidget {
               ),
             ),
           ],
-        ],
-      ),
-    );
+        ]);
   }
 
   Widget _chip(BuildContext context, String label) {
@@ -169,9 +225,11 @@ class DashboardScreen extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: scheme.primaryContainer,
-                  child: Icon(Icons.child_care, color: scheme.primary),
+                _PulsingHeart(
+                  child: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    child: Icon(Icons.favorite, color: scheme.primary),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -180,8 +238,26 @@ class DashboardScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text('Size of a ${info.size.toLowerCase()}'),
-            Text(info.approx, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(WeeklyContent.emojiForWeek(
+                        PregnancyMath.gaWeeks(context.read<AppStore>().profile!)),
+                    style: const TextStyle(fontSize: 26)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Size of a ${info.size.toLowerCase()}'),
+                      Text(info.approx,
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             if (note != null) ...[
               const SizedBox(height: 8),
               Text(note, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
@@ -321,10 +397,15 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 8),
             Text('$glasses / $target glasses'),
             const SizedBox(height: 8),
-            LinearProgressIndicator(
-              value: (glasses / target).clamp(0.0, 1.0),
-              minHeight: 6,
-              borderRadius: BorderRadius.circular(3),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: (glasses / target).clamp(0.0, 1.0)),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutCubic,
+              builder: (context, v, _) => LinearProgressIndicator(
+                value: v,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
             const SizedBox(height: 8),
             Row(
@@ -432,4 +513,145 @@ class DashboardScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Fade + gentle slide-up entrance, staggered by [index].
+class _StaggeredEntrance extends StatelessWidget {
+  final int index;
+  final Widget child;
+  const _StaggeredEntrance({required this.index, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 350 + index * 70),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, c) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, 14 * (1 - t)), child: c),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// A slow, calm heartbeat pulse (used on baby-card avatars).
+class _PulsingHeart extends StatefulWidget {
+  final Widget child;
+  const _PulsingHeart({required this.child});
+
+  @override
+  State<_PulsingHeart> createState() => _PulsingHeartState();
+}
+
+class _PulsingHeartState extends State<_PulsingHeart>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: Tween(begin: 0.94, end: 1.06).animate(
+          CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
+      child: widget.child,
+    );
+  }
+}
+
+/// Soft hearts drifting slowly upward behind the header content.
+class _FloatingHearts extends StatefulWidget {
+  final Color color;
+  final Widget child;
+  const _FloatingHearts({required this.color, required this.child});
+
+  @override
+  State<_FloatingHearts> createState() => _FloatingHeartsState();
+}
+
+class _FloatingHeartsState extends State<_FloatingHearts>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) => CustomPaint(
+                painter:
+                    _HeartsPainter(t: _controller.value, color: widget.color),
+              ),
+            ),
+          ),
+          widget.child,
+        ],
+      ),
+    );
+  }
+}
+
+class _HeartsPainter extends CustomPainter {
+  final double t;
+  final Color color;
+  _HeartsPainter({required this.t, required this.color});
+
+  // (xFraction, size, phase) per heart — fixed so motion is deterministic.
+  static const _hearts = [
+    (0.12, 14.0, 0.0),
+    (0.34, 9.0, 0.35),
+    (0.58, 12.0, 0.62),
+    (0.78, 8.0, 0.15),
+    (0.92, 11.0, 0.8),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    for (final (xf, s, phase) in _hearts) {
+      final cycle = (t + phase) % 1.0;
+      final y = size.height * (1.15 - 1.35 * cycle);
+      final x = size.width * xf + 6 * (cycle * 6.28).remainder(6.28).clamp(0, 1);
+      canvas.drawPath(_heartPath(Offset(x, y), s), paint);
+    }
+  }
+
+  Path _heartPath(Offset c, double s) {
+    return Path()
+      ..moveTo(c.dx, c.dy + 0.35 * s)
+      ..cubicTo(c.dx, c.dy + 0.1 * s, c.dx - 0.5 * s, c.dy - 0.05 * s,
+          c.dx - 0.5 * s, c.dy - 0.3 * s)
+      ..cubicTo(c.dx - 0.5 * s, c.dy - 0.55 * s, c.dx - 0.15 * s,
+          c.dy - 0.55 * s, c.dx, c.dy - 0.3 * s)
+      ..cubicTo(c.dx + 0.15 * s, c.dy - 0.55 * s, c.dx + 0.5 * s,
+          c.dy - 0.55 * s, c.dx + 0.5 * s, c.dy - 0.3 * s)
+      ..cubicTo(c.dx + 0.5 * s, c.dy - 0.05 * s, c.dx, c.dy + 0.1 * s, c.dx,
+          c.dy + 0.35 * s)
+      ..close();
+  }
+
+  @override
+  bool shouldRepaint(_HeartsPainter old) => old.t != t;
 }
