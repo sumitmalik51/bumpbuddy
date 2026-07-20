@@ -7,7 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../ai/scan_reader.dart';
+import '../growth_reference.dart';
 import '../models.dart';
+import '../pregnancy_math.dart';
 import '../store.dart';
 
 /// Fixed per-baby identity colors (validated for CVD + contrast on both
@@ -125,7 +127,10 @@ class _GrowthScreenState extends State<GrowthScreen> {
                 const SizedBox(height: 4),
                 Center(
                   child: Text(
-                    'Estimated fetal weight (g) per scan — tap a point for details',
+                    'Estimated fetal weight (g) per scan — tap a point for details.\n'
+                    'Shaded band: Hadlock 10th–90th centile, dashes: 50th (singleton reference'
+                    '${p.isTwins ? '; twins often track lower near term' : ''}).',
+                    textAlign: TextAlign.center,
                     style:
                         TextStyle(fontSize: 11.5, color: scheme.outline),
                   ),
@@ -223,12 +228,18 @@ class _GrowthScreenState extends State<GrowthScreen> {
               if (pt.efw[b.label] != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    '${b.displayName}: ${pt.efw[b.label]!.round()} g'
-                    '${prev != null && prev.efw[b.label] != null ? '  (+${(pt.efw[b.label]! - prev.efw[b.label]!).round()} g since ${DateFormat('d MMM').format(prev.date)})' : ''}',
-                    style: TextStyle(
-                        fontSize: 13, color: scheme.onSecondaryContainer),
-                  ),
+                  child: Builder(builder: (context) {
+                    final ga = PregnancyMath.gaDays(p, pt.date) / 7.0;
+                    final centile =
+                        centileLabelFor(ga, pt.efw[b.label]!);
+                    return Text(
+                      '${b.displayName}: ${pt.efw[b.label]!.round()} g'
+                      '${prev != null && prev.efw[b.label] != null ? '  (+${(pt.efw[b.label]! - prev.efw[b.label]!).round()} g since ${DateFormat('d MMM').format(prev.date)})' : ''}'
+                      '${centile != null ? '\n   $centile' : ''}',
+                      style: TextStyle(
+                          fontSize: 13, color: scheme.onSecondaryContainer),
+                    );
+                  }),
                 ),
             if (pt.discordance != null)
               Padding(
@@ -437,6 +448,10 @@ class _EfwChart extends StatelessWidget {
             surface: scheme.surfaceContainerHigh,
             gridColor: scheme.onSurfaceVariant.withValues(alpha: 0.18),
             textColor: scheme.onSurfaceVariant,
+            bandColor: scheme.onSurfaceVariant.withValues(alpha: 0.08),
+            midlineColor: scheme.onSurfaceVariant.withValues(alpha: 0.35),
+            gaWeeksAt: (d) =>
+                PregnancyMath.gaDays(profile, d) / 7.0,
           ),
         ),
       ),
@@ -461,6 +476,9 @@ class _EfwChartPainter extends CustomPainter {
   final Color surface;
   final Color gridColor;
   final Color textColor;
+  final Color bandColor;
+  final Color midlineColor;
+  final double Function(DateTime) gaWeeksAt;
 
   static const leftPad = 44.0, rightPad = 64.0, topPad = 12.0, bottomPad = 28.0;
 
@@ -472,6 +490,9 @@ class _EfwChartPainter extends CustomPainter {
     required this.surface,
     required this.gridColor,
     required this.textColor,
+    required this.bandColor,
+    required this.midlineColor,
+    required this.gaWeeksAt,
   });
 
   @override
@@ -482,6 +503,14 @@ class _EfwChartPainter extends CustomPainter {
     if (values.isEmpty) return;
     var minV = values.reduce(math.min);
     var maxV = values.reduce(math.max);
+    // Widen bounds to keep the Hadlock reference band in frame across the
+    // visible gestational span.
+    final gaFirst = gaWeeksAt(points.first.date);
+    final gaLast = gaWeeksAt(points.last.date);
+    final refLo = efwPercentilesAt(gaFirst);
+    final refHi = efwPercentilesAt(gaLast);
+    if (refLo != null) minV = math.min(minV, refLo.p10);
+    if (refHi != null) maxV = math.max(maxV, refHi.p90);
     if (minV == maxV) {
       minV -= 200;
       maxV += 200;
@@ -500,6 +529,49 @@ class _EfwChartPainter extends CustomPainter {
       final span = math.max(1, t1 - t0);
       final f = (points[i].date.millisecondsSinceEpoch - t0) / span;
       return leftPad + f * (size.width - leftPad - rightPad);
+    }
+
+    // Hadlock reference band (10th–90th) + dashed 50th, drawn FIRST so it
+    // sits behind everything. Sampled across the plot width.
+    if (points.length > 1) {
+      const samples = 24;
+      final upper = <Offset>[];
+      final lower = <Offset>[];
+      final mid = <Offset>[];
+      final t0 = points.first.date.millisecondsSinceEpoch.toDouble();
+      final t1 = points.last.date.millisecondsSinceEpoch.toDouble();
+      for (var s = 0; s <= samples; s++) {
+        final f = s / samples;
+        final t = t0 + (t1 - t0) * f;
+        final date = DateTime.fromMillisecondsSinceEpoch(t.round());
+        final ref = efwPercentilesAt(gaWeeksAt(date));
+        if (ref == null) continue;
+        final x = leftPad + f * (size.width - leftPad - rightPad);
+        upper.add(Offset(x, yFor(ref.p90)));
+        lower.add(Offset(x, yFor(ref.p10)));
+        mid.add(Offset(x, yFor(ref.p50)));
+      }
+      if (upper.length > 1) {
+        final band = Path()..moveTo(upper.first.dx, upper.first.dy);
+        for (final o in upper.skip(1)) {
+          band.lineTo(o.dx, o.dy);
+        }
+        for (final o in lower.reversed) {
+          band.lineTo(o.dx, o.dy);
+        }
+        band.close();
+        canvas.drawPath(band, Paint()..color = bandColor);
+        // Dashed 50th-centile line.
+        final dashPaint = Paint()
+          ..color = midlineColor
+          ..strokeWidth = 1.2
+          ..style = PaintingStyle.stroke;
+        for (var i = 0; i < mid.length - 1; i += 2) {
+          canvas.drawLine(mid[i], mid[i + 1], dashPaint);
+        }
+        _text(canvas, '50th', Offset(upper.first.dx + 2, mid.first.dy - 14),
+            9.5, midlineColor);
+      }
     }
 
     // Recessive grid: 4 hairlines + muted value labels.

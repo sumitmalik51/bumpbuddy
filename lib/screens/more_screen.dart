@@ -15,11 +15,13 @@ import '../weekly_content.dart';
 import 'ai_settings_screen.dart';
 import 'appointments_screen.dart';
 import 'bp_screen.dart';
+import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
 import 'edit_profile_screen.dart';
 import 'growth_screen.dart';
 import 'hospital_bag_screen.dart';
 import 'kick_counter_screen.dart';
+import 'labs_screen.dart';
 import 'medicines_screen.dart';
 import 'weight_screen.dart';
 
@@ -170,6 +172,10 @@ class MoreScreen extends StatelessWidget {
               '5-1-1 pattern awareness for labour', const ContractionTimerScreen()),
           _navTile(context, Icons.favorite_outline, 'Blood pressure',
               'Home & clinic readings, high-reading flags', const BpScreen()),
+          _navTile(context, Icons.chat_bubble_outline, 'Ask BumpBuddy',
+              'AI chat grounded in your own data', const ChatScreen()),
+          _navTile(context, Icons.bloodtype_outlined, 'Lab trends',
+              'Hb, sugar, TSH — every value over time', const LabsScreen()),
           _navTile(context, Icons.auto_awesome_outlined, 'AI scan reading',
               'Connect your Azure AI deployment', const AiSettingsScreen()),
           SwitchListTile(

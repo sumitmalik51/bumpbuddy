@@ -6,6 +6,7 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
+import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
 import 'growth_screen.dart';
 import 'kick_counter_screen.dart';
@@ -191,6 +192,22 @@ class DashboardScreen extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w600)),
             subtitle: const Text(
                 'Photograph the pages — AI fills in the measurements'),
+            trailing: const Icon(Icons.chevron_right),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          color: scheme.surfaceContainerHigh,
+          child: ListTile(
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const ChatScreen())),
+            leading: CircleAvatar(
+              backgroundColor: scheme.secondaryContainer,
+              child: Icon(Icons.chat_bubble_outline,
+                  color: scheme.onSecondaryContainer),
+            ),
+            title: const Text('Ask BumpBuddy'),
+            subtitle: const Text('Questions answered from YOUR data'),
             trailing: const Icon(Icons.chevron_right),
           ),
         ),

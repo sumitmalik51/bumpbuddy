@@ -343,6 +343,30 @@ class WeightEntry {
       );
 }
 
+class ChatMessage {
+  final String id;
+  final String role; // 'user' | 'assistant'
+  final String text;
+  final DateTime time;
+
+  ChatMessage({
+    required this.id,
+    required this.role,
+    required this.text,
+    required this.time,
+  });
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'role': role, 'text': text, 'time': time.toIso8601String()};
+
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+        id: j['id'] as String,
+        role: j['role'] as String,
+        text: j['text'] as String,
+        time: DateTime.parse(j['time'] as String),
+      );
+}
+
 class BpEntry {
   final String id;
   DateTime dateTime;

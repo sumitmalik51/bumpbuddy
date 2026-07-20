@@ -12,18 +12,23 @@
 import 'dart:io';
 
 import 'package:bumpbuddy/ai/ai_config.dart';
+import 'package:bumpbuddy/ai/chat_service.dart';
+import 'package:bumpbuddy/ai/lab_reader.dart';
 import 'package:bumpbuddy/ai/scan_reader.dart';
+import 'package:bumpbuddy/models.dart';
+import 'package:bumpbuddy/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final endpoint = Platform.environment['AZURE_OPENAI_ENDPOINT'] ?? '';
   final deployment = Platform.environment['AZURE_OPENAI_DEPLOYMENT'] ?? '';
   final apiKey = Platform.environment['AZURE_OPENAI_API_KEY'] ?? '';
   final imagePath = Platform.environment['SCAN_TEST_IMAGE'] ?? '';
-  final configured = endpoint.isNotEmpty &&
-      deployment.isNotEmpty &&
-      apiKey.isNotEmpty &&
+  final azureConfigured =
+      endpoint.isNotEmpty && deployment.isNotEmpty && apiKey.isNotEmpty;
+  final configured = azureConfigured &&
       imagePath.isNotEmpty &&
       File(imagePath).existsSync();
 
@@ -126,6 +131,88 @@ void main() {
     skip: configured
         ? false
         : 'Set AZURE_OPENAI_* and SCAN_TEST_IMAGE env vars to run live',
+    timeout: const Timeout(Duration(minutes: 6)),
+  );
+
+  test(
+    'LIVE: chat answers a growth question from the seeded data',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore();
+      await store.load();
+      await store.saveProfile(PregnancyProfile(
+        type: PregnancyType.twins,
+        chorionicity: Chorionicity.dcda,
+        edd: DateTime(2026, 8, 17),
+        lmp: DateTime(2025, 11, 10),
+        babies: [
+          Baby(label: 'A', nickname: 'guchi'),
+          Baby(label: 'B', nickname: 'armani')
+        ],
+      ));
+      await store.upsertRecord(RecordItem(
+        id: 'r1',
+        date: DateTime(2026, 7, 19),
+        category: RecordCategory.ultrasound,
+        title: 'Growth scan',
+        aiJson:
+            '{"report_date":"2026-07-19","gestational_age_on_report":"35 w + 6 d","twins_detected":true,'
+            '"babies":[{"label":"A","efw_grams":3030},{"label":"B","efw_grams":2536}],'
+            '"printed_efw_discordance_percent":16.3,"impression":null,"flags":[],"confidence_notes":null,'
+            '"derived":{"efw_discordance_percent":16.3,"efw_discordance_clinically_significant":false}}',
+      ));
+
+      final answer = await ChatService.ask(
+        config: AiConfig(
+            endpoint: endpoint, deployment: deployment, apiKey: apiKey),
+        store: store,
+        history: const [],
+        question: 'How are my twins growing? Use my latest scan.',
+      );
+      expect(answer.length, greaterThan(80));
+      // Grounding check: the answer must reference their actual data.
+      expect(
+        answer.contains('3030') ||
+            answer.contains('2536') ||
+            answer.toLowerCase().contains('guchi') ||
+            answer.toLowerCase().contains('armani'),
+        isTrue,
+        reason: 'answer should cite the user\'s own values: $answer',
+      );
+    },
+    skip: azureConfigured ? false : 'Set AZURE_OPENAI_* env vars to run live',
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  final labImage = Platform.environment['LAB_TEST_IMAGE'] ?? '';
+  test(
+    'LIVE: lab reader transcribes a CBC with printed flags and ranges',
+    () async {
+      final result = await LabReader.extract(
+        config: AiConfig(
+            endpoint: endpoint, deployment: deployment, apiKey: apiKey),
+        images: [File(labImage)],
+      );
+      expect(result['kind'], 'lab');
+      final tests =
+          (result['tests'] as List).cast<Map<String, dynamic>>();
+      Map<String, dynamic> byName(String needle) => tests.firstWhere(
+          (t) => (t['name'] as String).toLowerCase().contains(needle));
+      final hb = byName('emoglobin');
+      expect(hb['value'], 10.4);
+      expect((hb['flag'] ?? '').toString().toUpperCase(), contains('L'));
+      expect(hb['reference_range'], contains('11'));
+      final tsh = byName('tsh');
+      expect(tsh['value'], 2.4);
+      expect(tsh['flag'], isNull, reason: 'TSH has no printed flag');
+      final fpg = byName('glucose');
+      expect(fpg['value'], 84);
+    },
+    skip: (azureConfigured &&
+            labImage.isNotEmpty &&
+            File(labImage).existsSync())
+        ? false
+        : 'Set AZURE_OPENAI_* and LAB_TEST_IMAGE to run live',
     timeout: const Timeout(Duration(minutes: 6)),
   );
 

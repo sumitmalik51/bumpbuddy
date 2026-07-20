@@ -1,3 +1,4 @@
+import 'package:bumpbuddy/growth_reference.dart';
 import 'package:bumpbuddy/models.dart';
 import 'package:bumpbuddy/pregnancy_math.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,6 +88,23 @@ void main() {
     final singleton = profile(edd: edd);
     expect(PregnancyMath.arrivalWindow(singleton),
         (startWeek: 39, endWeek: 40));
+  });
+
+  test('Hadlock reference interpolates and labels centiles sensibly', () {
+    // Exact tabulated week.
+    final w36 = efwPercentilesAt(36)!;
+    expect(w36.p50, 2731);
+    // Interpolation half-way between 35 (2528) and 36 (2731).
+    final w355 = efwPercentilesAt(35.5)!;
+    expect(w355.p50, closeTo((2528 + 2731) / 2, 0.1));
+    // Out of range.
+    expect(efwPercentilesAt(20), isNull);
+    expect(efwPercentilesAt(42), isNull);
+    // The user's real values at 35w6d (~35.86w): A=3030 near/above p90,
+    // B=2536 close to the 50th.
+    expect(centileLabelFor(35.857, 2536), contains('centile'));
+    expect(centileLabelFor(35.857, 500), contains('below the 10th'));
+    expect(centileLabelFor(35.857, 4000), contains('above the 90th'));
   });
 
   test('profile JSON round-trip', () {

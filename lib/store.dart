@@ -24,6 +24,7 @@ class AppStore extends ChangeNotifier {
   static const _kBp = 'bpEntries';
   static const _kContractions = 'contractions';
   static const _kKickReminder = 'kickReminderEnabled';
+  static const _kChat = 'chatMessages';
 
   SharedPreferences? _prefs;
   bool loaded = false;
@@ -39,6 +40,7 @@ class AppStore extends ChangeNotifier {
   List<BpEntry> bpEntries = [];
   List<Contraction> contractions = [];
   bool kickReminderEnabled = true;
+  List<ChatMessage> chatMessages = [];
   Map<String, int> water = {};
   Map<String, List<String>> medsTaken = {};
 
@@ -68,6 +70,7 @@ class AppStore extends ChangeNotifier {
     bpEntries = _readList(_kBp, BpEntry.fromJson);
     contractions = _readList(_kContractions, Contraction.fromJson);
     kickReminderEnabled = p.getBool(_kKickReminder) ?? true;
+    chatMessages = _readList(_kChat, ChatMessage.fromJson);
     water = ((jsonDecode(p.getString(_kWater) ?? '{}')) as Map<String, dynamic>)
         .map((k, v) => MapEntry(k, v as int));
     medsTaken =
@@ -301,6 +304,23 @@ class AppStore extends ChangeNotifier {
   Future<void> clearContractions() async {
     contractions = [];
     await _writeList(_kContractions, contractions);
+    notifyListeners();
+  }
+
+  // ---- Chat ----
+
+  Future<void> addChatMessage(ChatMessage m) async {
+    chatMessages.add(m);
+    if (chatMessages.length > 200) {
+      chatMessages = chatMessages.sublist(chatMessages.length - 200);
+    }
+    await _writeList(_kChat, chatMessages);
+    notifyListeners();
+  }
+
+  Future<void> clearChat() async {
+    chatMessages = [];
+    await _writeList(_kChat, chatMessages);
     notifyListeners();
   }
 

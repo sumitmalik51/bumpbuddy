@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../ai/ai_config.dart';
+import '../ai/lab_reader.dart';
 import '../ai/scan_reader.dart';
 import '../attachments.dart';
 import '../models.dart';
@@ -26,6 +27,7 @@ class _ScanReadScreenState extends State<ScanReadScreen> {
   late final String _recordId;
   final List<RecordAttachment> _pages = [];
   bool _reading = false;
+  bool _isLab = false;
   String? _aiJson;
   AiConfig? _config;
   bool _configLoaded = false;
@@ -65,11 +67,14 @@ class _ScanReadScreenState extends State<ScanReadScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _reading = true);
     try {
-      final result = await ScanReader.extract(
-        config: _config!,
-        images: _pages.map((p) => File(p.filePath)).toList(),
-        twinsHint: store.profile?.isTwins ?? false,
-      );
+      final files = _pages.map((p) => File(p.filePath)).toList();
+      final result = _isLab
+          ? await LabReader.extract(config: _config!, images: files)
+          : await ScanReader.extract(
+              config: _config!,
+              images: files,
+              twinsHint: store.profile?.isTwins ?? false,
+            );
       if (!mounted) return;
       setState(() {
         _aiJson = jsonEncode(result);
@@ -94,11 +99,14 @@ class _ScanReadScreenState extends State<ScanReadScreen> {
       date = DateTime.tryParse(r['report_date'] as String) ?? date;
     }
     final ga = r['gestational_age_on_report'];
+    final labName = r['lab_name'];
     await store.upsertRecord(RecordItem(
       id: _recordId,
       date: date,
-      category: RecordCategory.ultrasound,
-      title: 'Growth scan${ga != null ? ' — $ga' : ' — ${DateFormat('d MMM').format(date)}'}',
+      category: _isLab ? RecordCategory.bloodTest : RecordCategory.ultrasound,
+      title: _isLab
+          ? 'Lab report — ${labName ?? DateFormat('d MMM').format(date)}'
+          : 'Growth scan${ga != null ? ' — $ga' : ' — ${DateFormat('d MMM').format(date)}'}',
       attachments: _pages,
       aiJson: _aiJson!,
     ));
@@ -124,9 +132,26 @@ class _ScanReadScreenState extends State<ScanReadScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                            value: false,
+                            label: Text('Growth scan'),
+                            icon: Icon(Icons.monitor_heart_outlined)),
+                        ButtonSegment(
+                            value: true,
+                            label: Text('Lab report'),
+                            icon: Icon(Icons.bloodtype_outlined)),
+                      ],
+                      selected: {_isLab},
+                      onSelectionChanged: (_reading || _aiJson != null)
+                          ? null
+                          : (s) => setState(() => _isLab = s.first),
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       _pages.isEmpty
-                          ? 'Photograph your scan report'
+                          ? 'Photograph your ${_isLab ? 'lab' : 'scan'} report'
                           : '${_pages.length} page${_pages.length == 1 ? '' : 's'} added',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),

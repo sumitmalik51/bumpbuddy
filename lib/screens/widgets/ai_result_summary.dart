@@ -17,6 +17,7 @@ class AiResultSummary extends StatelessWidget {
     } catch (_) {
       return const SizedBox.shrink();
     }
+    if (r['kind'] == 'lab') return _labSummary(context, r);
     final babies =
         ((r['babies'] ?? []) as List).cast<Map<String, dynamic>>();
     final derived = (r['derived'] ?? {}) as Map<String, dynamic>;
@@ -106,6 +107,88 @@ class AiResultSummary extends StatelessWidget {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               'Extracted from the report photo — verify against the original. Not medical advice.',
+              style: TextStyle(fontSize: 11, color: scheme.outline),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _labSummary(BuildContext context, Map<String, dynamic> r) {
+    final scheme = Theme.of(context).colorScheme;
+    final tests =
+        ((r['tests'] ?? []) as List).cast<Map<String, dynamic>>();
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bloodtype_outlined, size: 16, color: scheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Lab reading · ${r['lab_name'] ?? ''} ${r['report_date'] ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final t in tests)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Text('${t['name']}',
+                        style: const TextStyle(fontSize: 12.5)),
+                  ),
+                  Expanded(
+                    flex: 4,
+                    child: Text(
+                      '${t['value'] ?? t['value_raw'] ?? '—'} ${t['unit'] ?? ''}'
+                      '${t['flag'] != null ? '  (${t['flag']})' : ''}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: t['flag'] != null
+                            ? scheme.error
+                            : scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text('${t['reference_range'] ?? ''}',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: scheme.onSurfaceVariant)),
+                  ),
+                ],
+              ),
+            ),
+          if (r['confidence_notes'] != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Note: ${r['confidence_notes']}',
+                  style: TextStyle(
+                      fontSize: 11.5, color: scheme.onSurfaceVariant)),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Transcribed from the report — flags are only those the lab printed. Not medical advice.',
               style: TextStyle(fontSize: 11, color: scheme.outline),
             ),
           ),
