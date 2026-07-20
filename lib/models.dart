@@ -367,6 +367,30 @@ class ChatMessage {
       );
 }
 
+class SavedAnswer {
+  final String id;
+  final String question;
+  final String answer;
+  final DateTime time;
+
+  SavedAnswer({
+    required this.id,
+    required this.question,
+    required this.answer,
+    required this.time,
+  });
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'question': question, 'answer': answer, 'time': time.toIso8601String()};
+
+  factory SavedAnswer.fromJson(Map<String, dynamic> j) => SavedAnswer(
+        id: j['id'] as String,
+        question: (j['question'] ?? '') as String,
+        answer: (j['answer'] ?? '') as String,
+        time: DateTime.parse(j['time'] as String),
+      );
+}
+
 class BpEntry {
   final String id;
   DateTime dateTime;

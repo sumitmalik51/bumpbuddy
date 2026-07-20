@@ -20,6 +20,7 @@ import 'bp_screen.dart';
 import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
 import 'edit_profile_screen.dart';
+import 'faq_screen.dart';
 import 'growth_screen.dart';
 import 'hospital_bag_screen.dart';
 import 'kick_counter_screen.dart';
@@ -200,6 +201,8 @@ class MoreScreen extends StatelessWidget {
               'Home & clinic readings, high-reading flags', const BpScreen()),
           _navTile(context, Icons.chat_bubble_outline, 'Ask BumpBuddy',
               'AI chat grounded in your own data', const ChatScreen()),
+          _navTile(context, Icons.quiz_outlined, 'Common questions',
+              'Answers to frequent pregnancy questions', const FaqScreen()),
           _navTile(context, Icons.bloodtype_outlined, 'Lab trends',
               'Hb, sugar, TSH — every value over time', const LabsScreen()),
           _navTile(context, Icons.auto_awesome_outlined, 'AI scan reading',

@@ -25,6 +25,7 @@ class AppStore extends ChangeNotifier {
   static const _kContractions = 'contractions';
   static const _kKickReminder = 'kickReminderEnabled';
   static const _kChat = 'chatMessages';
+  static const _kSavedAnswers = 'savedAnswers';
   static const _kBabyTone = 'babySkinTone';
   static const _kLanguage = 'languageCode';
 
@@ -45,6 +46,7 @@ class AppStore extends ChangeNotifier {
   int babySkinTone = 0;
   String languageCode = 'en';
   List<ChatMessage> chatMessages = [];
+  List<SavedAnswer> savedAnswers = [];
   Map<String, int> water = {};
   Map<String, List<String>> medsTaken = {};
 
@@ -77,6 +79,7 @@ class AppStore extends ChangeNotifier {
     babySkinTone = p.getInt(_kBabyTone) ?? 0;
     languageCode = p.getString(_kLanguage) ?? 'en';
     chatMessages = _readList(_kChat, ChatMessage.fromJson);
+    savedAnswers = _readList(_kSavedAnswers, SavedAnswer.fromJson);
     water = ((jsonDecode(p.getString(_kWater) ?? '{}')) as Map<String, dynamic>)
         .map((k, v) => MapEntry(k, v as int));
     medsTaken =
@@ -327,6 +330,32 @@ class AppStore extends ChangeNotifier {
   Future<void> clearChat() async {
     chatMessages = [];
     await _writeList(_kChat, chatMessages);
+    notifyListeners();
+  }
+
+  bool isAnswerSaved(String answer) =>
+      savedAnswers.any((s) => s.answer == answer);
+
+  Future<void> toggleSavedAnswer(String question, String answer) async {
+    final existing = savedAnswers.indexWhere((s) => s.answer == answer);
+    if (existing >= 0) {
+      savedAnswers.removeAt(existing);
+    } else {
+      savedAnswers.insert(
+          0,
+          SavedAnswer(
+              id: newId(),
+              question: question,
+              answer: answer,
+              time: DateTime.now()));
+    }
+    await _writeList(_kSavedAnswers, savedAnswers);
+    notifyListeners();
+  }
+
+  Future<void> deleteSavedAnswer(String id) async {
+    savedAnswers.removeWhere((s) => s.id == id);
+    await _writeList(_kSavedAnswers, savedAnswers);
     notifyListeners();
   }
 

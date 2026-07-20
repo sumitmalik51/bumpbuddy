@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../ai/ai_config.dart';
 import '../ai/chat_service.dart';
@@ -7,6 +8,8 @@ import '../ai/scan_reader.dart';
 import '../models.dart';
 import '../store.dart';
 import 'ai_settings_screen.dart';
+import 'faq_screen.dart';
+import 'saved_answers_screen.dart';
 
 /// "Ask BumpBuddy" — questions answered from the user's own pregnancy data.
 class ChatScreen extends StatefulWidget {
@@ -104,6 +107,18 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('Ask BumpBuddy'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.quiz_outlined),
+            tooltip: 'Common questions',
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const FaqScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.bookmark_border),
+            tooltip: 'Saved answers',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const SavedAnswersScreen())),
+          ),
           if (store.chatMessages.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep_outlined),
@@ -146,8 +161,27 @@ class _ChatScreenState extends State<ChatScreen> {
                                       pending: true);
                                 }
                                 final m = store.chatMessages[i];
-                                return _bubble(context,
-                                    role: m.role, text: m.text);
+                                if (m.role != 'assistant') {
+                                  return _bubble(context,
+                                      role: m.role, text: m.text);
+                                }
+                                // Find the question this answer responded to.
+                                var question = '';
+                                for (var k = i - 1; k >= 0; k--) {
+                                  if (store.chatMessages[k].role == 'user') {
+                                    question = store.chatMessages[k].text;
+                                    break;
+                                  }
+                                }
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _bubble(context,
+                                        role: m.role, text: m.text),
+                                    _answerActions(context, store, question,
+                                        m.text),
+                                  ],
+                                );
                               },
                             ),
                     ),
@@ -220,6 +254,41 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Bookmark + share row shown under each assistant answer.
+  Widget _answerActions(
+      BuildContext context, AppStore store, String question, String answer) {
+    final scheme = Theme.of(context).colorScheme;
+    final saved = store.isAnswerSaved(answer);
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 10),
+      child: Row(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => store.toggleSavedAnswer(question, answer),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(saved ? Icons.bookmark : Icons.bookmark_border,
+                  size: 18,
+                  color: saved ? scheme.primary : scheme.onSurfaceVariant),
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => SharePlus.instance.share(ShareParams(
+                text:
+                    '${question.isNotEmpty ? '$question\n\n' : ''}$answer\n\n— via BumpBuddy')),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(Icons.ios_share,
+                  size: 17, color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _emptyState(BuildContext context, List<String> suggestions) {
     final scheme = Theme.of(context).colorScheme;
     return ListView(
@@ -244,6 +313,13 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () => _send(s),
             ),
           ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const FaqScreen())),
+          icon: const Icon(Icons.quiz_outlined),
+          label: const Text('Browse common questions'),
+        ),
       ],
     );
   }
