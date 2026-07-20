@@ -14,6 +14,7 @@ import '../store.dart';
 import '../weekly_content.dart';
 import 'ai_settings_screen.dart';
 import 'appointments_screen.dart';
+import 'baby_view_screen.dart';
 import 'bp_screen.dart';
 import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
@@ -152,6 +153,12 @@ class MoreScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          _navTile(
+              context,
+              Icons.child_care_outlined,
+              p.isTwins ? 'Your babies this week' : 'Your baby this week',
+              '3D-style illustration that grows with you',
+              const BabyViewScreen()),
           _navTile(context, Icons.folder_outlined, 'Records vault',
               'Scans, reports, prescriptions & bills', const RecordsScreen()),
           _navTile(context, Icons.medication_outlined, 'Medicines',

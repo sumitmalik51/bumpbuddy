@@ -25,6 +25,7 @@ class AppStore extends ChangeNotifier {
   static const _kContractions = 'contractions';
   static const _kKickReminder = 'kickReminderEnabled';
   static const _kChat = 'chatMessages';
+  static const _kBabyTone = 'babySkinTone';
 
   SharedPreferences? _prefs;
   bool loaded = false;
@@ -40,6 +41,7 @@ class AppStore extends ChangeNotifier {
   List<BpEntry> bpEntries = [];
   List<Contraction> contractions = [];
   bool kickReminderEnabled = true;
+  int babySkinTone = 0;
   List<ChatMessage> chatMessages = [];
   Map<String, int> water = {};
   Map<String, List<String>> medsTaken = {};
@@ -70,6 +72,7 @@ class AppStore extends ChangeNotifier {
     bpEntries = _readList(_kBp, BpEntry.fromJson);
     contractions = _readList(_kContractions, Contraction.fromJson);
     kickReminderEnabled = p.getBool(_kKickReminder) ?? true;
+    babySkinTone = p.getInt(_kBabyTone) ?? 0;
     chatMessages = _readList(_kChat, ChatMessage.fromJson);
     water = ((jsonDecode(p.getString(_kWater) ?? '{}')) as Map<String, dynamic>)
         .map((k, v) => MapEntry(k, v as int));
@@ -321,6 +324,14 @@ class AppStore extends ChangeNotifier {
   Future<void> clearChat() async {
     chatMessages = [];
     await _writeList(_kChat, chatMessages);
+    notifyListeners();
+  }
+
+  // ---- Baby illustration skin tone ----
+
+  Future<void> setBabySkinTone(int index) async {
+    babySkinTone = index;
+    await _prefs!.setInt(_kBabyTone, index);
     notifyListeners();
   }
 

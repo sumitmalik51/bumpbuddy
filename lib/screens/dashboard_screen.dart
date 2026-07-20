@@ -6,6 +6,8 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
+import '../widgets/womb_baby.dart';
+import 'baby_view_screen.dart';
 import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
 import 'growth_screen.dart';
@@ -349,53 +351,60 @@ class DashboardScreen extends StatelessWidget {
 
   Widget _babyCard(BuildContext context, String name, WeekInfo info, {String? note}) {
     final scheme = Theme.of(context).colorScheme;
+    final store = context.watch<AppStore>();
+    final week = PregnancyMath.gaWeeks(store.profile!);
     return Card(
       color: scheme.surfaceContainerHigh,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _PulsingHeart(
-                  child: CircleAvatar(
-                    backgroundColor: scheme.primaryContainer,
-                    child: Icon(Icons.favorite, color: scheme.primary),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const BabyViewScreen())),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  WombBaby(
+                      week: week, size: 52, toneIndex: store.babySkinTone),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 16)),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(WeeklyContent.emojiForWeek(
-                        PregnancyMath.gaWeeks(context.read<AppStore>().profile!)),
-                    style: const TextStyle(fontSize: 26)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Size of a ${info.size.toLowerCase()}'),
-                      Text(info.approx,
-                          style: TextStyle(
-                              color: scheme.onSurfaceVariant, fontSize: 13)),
-                    ],
+                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(WeeklyContent.emojiForWeek(week),
+                      style: const TextStyle(fontSize: 26)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Size of a ${info.size.toLowerCase()}'),
+                        Text(info.approx,
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant, fontSize: 13)),
+                      ],
+                    ),
                   ),
-                ),
+                ],
+              ),
+              if (note != null) ...[
+                const SizedBox(height: 8),
+                Text(note,
+                    style: TextStyle(
+                        fontSize: 12, color: scheme.onSurfaceVariant)),
               ],
-            ),
-            if (note != null) ...[
-              const SizedBox(height: 8),
-              Text(note, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -665,38 +674,6 @@ class _StaggeredEntrance extends StatelessWidget {
         child: Transform.translate(offset: Offset(0, 14 * (1 - t)), child: c),
       ),
       child: child,
-    );
-  }
-}
-
-/// A slow, calm heartbeat pulse (used on baby-card avatars).
-class _PulsingHeart extends StatefulWidget {
-  final Widget child;
-  const _PulsingHeart({required this.child});
-
-  @override
-  State<_PulsingHeart> createState() => _PulsingHeartState();
-}
-
-class _PulsingHeartState extends State<_PulsingHeart>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1600),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: Tween(begin: 0.94, end: 1.06).animate(
-          CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
-      child: widget.child,
     );
   }
 }
