@@ -23,6 +23,7 @@ import 'hospital_bag_screen.dart';
 import 'kick_counter_screen.dart';
 import 'labs_screen.dart';
 import 'medicines_screen.dart';
+import 'records_screen.dart';
 import 'weight_screen.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -151,6 +152,8 @@ class MoreScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          _navTile(context, Icons.folder_outlined, 'Records vault',
+              'Scans, reports, prescriptions & bills', const RecordsScreen()),
           _navTile(context, Icons.medication_outlined, 'Medicines',
               'Daily supplements & prescriptions', const MedicinesScreen()),
           _navTile(context, Icons.event_outlined, 'Appointments',

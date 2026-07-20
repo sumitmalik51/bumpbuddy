@@ -51,37 +51,58 @@ void _paintGradient(Canvas canvas, Rect rect) {
   );
 }
 
-/// Draws the heart motif centered in [bounds].
-void _paintMotif(Canvas canvas, Rect bounds, {required bool cutout}) {
+/// Draws a pregnant-parent side-profile silhouette (white) with a heart on
+/// the bump, centered in [bounds]. Reads as "pregnancy" for any parent —
+/// not twin-specific.
+void _paintMotif(Canvas canvas, Rect bounds) {
   final s = bounds.width;
-  final big = Rect.fromLTWH(
-      bounds.left + 0.10 * s, bounds.top + 0.10 * s, 0.80 * s, 0.80 * s);
+  Offset p(double fx, double fy) =>
+      Offset(bounds.left + fx * s, bounds.top + fy * s);
 
-  // Soft shadow behind the big heart.
+  // Body: back on the left, belly bulging to the right, down to the base.
+  final body = Path()
+    ..moveTo(p(0.37, 0.31).dx, p(0.37, 0.31).dy)
+    ..cubicTo(p(0.25, 0.30).dx, p(0.25, 0.30).dy, p(0.22, 0.45).dx,
+        p(0.22, 0.45).dy, p(0.25, 0.56).dx, p(0.25, 0.56).dy)
+    ..cubicTo(p(0.27, 0.66).dx, p(0.27, 0.66).dy, p(0.20, 0.73).dx,
+        p(0.20, 0.73).dy, p(0.26, 0.85).dx, p(0.26, 0.85).dy)
+    ..cubicTo(p(0.30, 0.93).dx, p(0.30, 0.93).dy, p(0.46, 0.94).dx,
+        p(0.46, 0.94).dy, p(0.51, 0.84).dx, p(0.51, 0.84).dy)
+    ..cubicTo(p(0.55, 0.77).dx, p(0.55, 0.77).dy, p(0.52, 0.72).dx,
+        p(0.52, 0.72).dy, p(0.61, 0.66).dx, p(0.61, 0.66).dy)
+    ..cubicTo(p(0.75, 0.57).dx, p(0.75, 0.57).dy, p(0.75, 0.42).dx,
+        p(0.75, 0.42).dy, p(0.585, 0.37).dx, p(0.585, 0.37).dy)
+    ..cubicTo(p(0.50, 0.345).dx, p(0.50, 0.345).dy, p(0.42, 0.335).dx,
+        p(0.42, 0.335).dy, p(0.37, 0.31).dx, p(0.37, 0.31).dy)
+    ..close();
+
+  final headCenter = p(0.40, 0.19);
+  final headR = 0.115 * s;
+
+  // Soft shadow for depth.
+  final shadow = Paint()
+    ..color = Colors.black.withValues(alpha: 0.16)
+    ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.02 * s);
+  canvas.drawPath(body.shift(Offset(0, 0.012 * s)), shadow);
+  canvas.drawCircle(
+      headCenter.translate(0, 0.012 * s), headR, shadow);
+
+  final white = Paint()..color = Colors.white;
+  canvas.drawPath(body, white);
+  canvas.drawCircle(headCenter, headR, white);
+
+  // Heart on the bump — the "baby" — in the brand gradient.
+  final heartRect = Rect.fromCenter(
+      center: p(0.545, 0.52), width: 0.24 * s, height: 0.24 * s);
   canvas.drawPath(
-    _heart(big.shift(Offset(0, 0.015 * s))),
+    _heart(heartRect),
     Paint()
-      ..color = Colors.black.withValues(alpha: 0.18)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.02 * s),
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [_roseColor, _violetColor],
+      ).createShader(heartRect),
   );
-  canvas.drawPath(_heart(big), Paint()..color = Colors.white);
-
-  // Twin hearts nested inside, tilted toward each other.
-  void drawTwin(Offset center, double size, double angleDeg, Color color) {
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(angleDeg * 3.14159265 / 180);
-    final r = Rect.fromCenter(
-        center: Offset.zero, width: size, height: size);
-    canvas.drawPath(_heart(r), Paint()..color = color);
-    canvas.restore();
-  }
-
-  final cy = bounds.top + 0.505 * s;
-  drawTwin(Offset(bounds.left + 0.39 * s, cy), 0.28 * s, -12,
-      cutout ? _roseColor : _roseColor);
-  drawTwin(Offset(bounds.left + 0.61 * s, cy), 0.28 * s, 12,
-      cutout ? _violetColor : _violetColor);
 }
 
 Future<void> _savePng(
@@ -104,7 +125,7 @@ void main() {
     // Full icon (legacy Android + iOS): gradient + motif.
     await _savePng((canvas, rect) async {
       _paintGradient(canvas, rect);
-      _paintMotif(canvas, rect.deflate(0.06 * _size), cutout: false);
+      _paintMotif(canvas, rect.deflate(0.10 * _size));
     }, 'assets/icon/icon.png');
 
     // Adaptive background: gradient only.
@@ -115,8 +136,8 @@ void main() {
     // Adaptive foreground: motif on transparent, inside the ~66% safe zone.
     await _savePng((canvas, rect) async {
       final safe = Rect.fromCenter(
-          center: rect.center, width: 0.60 * _size, height: 0.60 * _size);
-      _paintMotif(canvas, safe, cutout: false);
+          center: rect.center, width: 0.62 * _size, height: 0.62 * _size);
+      _paintMotif(canvas, safe);
     }, 'assets/icon/icon_fg.png');
 
     expect(File('assets/icon/icon.png').existsSync(), isTrue);

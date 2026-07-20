@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'chat_screen.dart';
 import 'dashboard_screen.dart';
 import 'journal_screen.dart';
 import 'more_screen.dart';
-import 'records_screen.dart';
 import 'timeline_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -22,7 +22,7 @@ class _HomeShellState extends State<HomeShell> {
       DashboardScreen(),
       TimelineScreen(),
       JournalScreen(),
-      RecordsScreen(),
+      ChatScreen(),
       MoreScreen(),
     ];
     return Scaffold(
@@ -34,7 +34,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.timeline_outlined), selectedIcon: Icon(Icons.timeline), label: 'Timeline'),
           NavigationDestination(icon: Icon(Icons.edit_note_outlined), selectedIcon: Icon(Icons.edit_note), label: 'Journal'),
-          NavigationDestination(icon: Icon(Icons.folder_outlined), selectedIcon: Icon(Icons.folder), label: 'Records'),
+          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Ask'),
           NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
         ],
       ),

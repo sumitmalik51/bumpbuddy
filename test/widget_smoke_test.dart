@@ -7,10 +7,12 @@ import 'dart:convert';
 import 'package:bumpbuddy/main.dart';
 import 'package:bumpbuddy/models.dart';
 import 'package:bumpbuddy/store.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<AppStore> _storeWith(Map<String, Object> prefs) async {
+  FlutterSecureStorage.setMockInitialValues({});
   SharedPreferences.setMockInitialValues(prefs);
   final store = AppStore();
   await store.load();
@@ -56,7 +58,7 @@ void main() {
       (tester) async {
     final store = await _storeWith({'profile': _profileJson(twins: true)});
     await _pumpApp(tester, store);
-    for (final tab in ['Timeline', 'Journal', 'Records', 'More']) {
+    for (final tab in ['Timeline', 'Journal', 'Ask', 'More']) {
       await tester.tap(find.text(tab).last);
       for (var i = 0; i < 8; i++) {
         await tester.pump(const Duration(milliseconds: 100));
