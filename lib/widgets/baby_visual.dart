@@ -26,7 +26,7 @@ class BabyVisual extends StatelessWidget {
     final nearest = _stages.reduce(
         (a, b) => (w - a).abs() <= (w - b).abs() ? a : b);
     final stage = nearest.toString().padLeft(2, '0');
-    return 'assets/baby/${twins ? 'twin_' : ''}week_$stage.png';
+    return 'assets/baby/${twins ? 'twin_' : ''}week_$stage.jpg';
   }
 
   Future<String?> _resolve() async {

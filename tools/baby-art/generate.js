@@ -30,55 +30,74 @@ const STAGES = [8, 12, 16, 20, 24, 28, 32, 36, 40];
 
 // One locked art style so the whole set looks cohesive.
 const STYLE =
-  "Soft 3D-rendered digital illustration, wholesome and cute, of a healthy " +
-  "unborn baby curled peacefully in a stylised womb. Warm rosy-and-cream " +
-  "palette, soft studio lighting, gentle rim light, smooth clay-like shading, " +
-  "plain soft-pink vignette background. Tender, calm, non-graphic, " +
-  "non-clinical, no text, no watermark, no medical instruments. Centered.";
+  "Tasteful educational medical illustration of fetal development, soft " +
+  "3D-rendered and wholesome, of a healthy unborn baby curled peacefully in " +
+  "a stylised womb. The baby is in a modest curled pose with knees drawn up " +
+  "and arms tucked in, limbs covering the torso; smooth skin with no explicit " +
+  "anatomical detail. Warm rosy-and-cream palette, soft studio lighting, " +
+  "gentle rim light, smooth clay-like shading, plain soft-pink vignette " +
+  "background. Tender, calm, non-graphic, no text, no watermark, no medical " +
+  "instruments. Centered.";
 
 function stagePrompt(week, twins) {
+  // Near-term stages render the baby softly SWADDLED in a blanket — this is
+  // wholesome, reads as "almost here", and (unlike a realistic full-term nude
+  // fetus) passes image-moderation reliably.
+  if (week >= 30) {
+    const who = twins
+      ? "two peaceful full-term newborn twins, softly swaddled together in a soft cream blanket, sleeping, only their faces and a tiny hand visible"
+      : "a peaceful full-term newborn baby, softly swaddled in a soft cream blanket, sleeping, only the face and one tiny hand visible";
+    return `${STYLE} Show ${who}, cozy and calm (about ${week} weeks).`;
+  }
   const who = twins
-    ? "two small twin babies curled together, facing each other"
-    : "one baby curled in the fetal position";
+    ? "two small twin babies curled together in a stylised womb, facing each other, knees tucked, modest pose, no explicit anatomy"
+    : "one baby curled in the fetal position in a stylised womb, knees tucked to the chest, modest pose, no explicit anatomy";
   let size;
   if (week <= 10) size = "very small and delicate, large head relative to body, tiny limb buds";
   else if (week <= 18) size = "small, big head, forming little arms and legs, slender";
-  else if (week <= 27) size = "clearly baby-like, rounded, hands near the face";
-  else if (week <= 34) size = "plump and full, chubby cheeks, fills much of the womb";
-  else size = "full-term size, very round and chubby, snug in the womb";
+  else size = "clearly baby-like, rounded, hands near the face";
   return `${STYLE} Show ${who}, at about ${week} weeks of pregnancy: ${size}.`;
 }
 
 function getConfig() {
-  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || "").replace(/\/+$/, "")
-    .replace(/\/api\/projects.*$/, "");
+  const endpoint = (process.env.AZURE_OPENAI_IMAGE_ENDPOINT ||
+          process.env.AZURE_OPENAI_ENDPOINT ||
+          "")
+      .replace(/\/+$/, "");
   const deployment = process.env.AZURE_OPENAI_IMAGE_DEPLOYMENT || "";
-  const key = process.env.AZURE_OPENAI_API_KEY || "";
+  const key =
+      process.env.AZURE_OPENAI_IMAGE_KEY || process.env.AZURE_OPENAI_API_KEY || "";
   if (!endpoint || !deployment || !key) {
     console.error(
-      "Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_IMAGE_DEPLOYMENT and " +
-        "AZURE_OPENAI_API_KEY.\nPowerShell:\n" +
-        "  $env:AZURE_OPENAI_IMAGE_DEPLOYMENT = 'gpt-image-1'\n"
+      "Set AZURE_OPENAI_IMAGE_ENDPOINT, AZURE_OPENAI_IMAGE_DEPLOYMENT and " +
+        "AZURE_OPENAI_IMAGE_KEY.\nPowerShell:\n" +
+        "  $env:AZURE_OPENAI_IMAGE_DEPLOYMENT = 'gpt-image-2'\n"
     );
     process.exit(1);
   }
-  return { endpoint, deployment, key };
+  // The modern "/openai/v1" surface takes the model in the body and needs no
+  // deployment path segment; the classic surface uses /deployments/<d>/...
+  const isV1 = /\/openai\/v1\/?$/.test(endpoint) || endpoint.includes("/openai/v1/");
+  return { endpoint, deployment, key, isV1 };
 }
 
 async function generateOne(cfg, week, twins) {
-  const url =
-    `${cfg.endpoint}/openai/deployments/${cfg.deployment}/images/generations` +
-    `?api-version=${API_VERSION}`;
+  const payload = {
+    prompt: stagePrompt(week, twins),
+    n: 1,
+    size: "1024x1024",
+    quality: "high",
+    output_format: "jpeg",
+    output_compression: 85,
+  };
+  const url = cfg.isV1
+    ? `${cfg.endpoint}/images/generations`
+    : `${cfg.endpoint}/openai/deployments/${cfg.deployment}/images/generations?api-version=${API_VERSION}`;
+  if (cfg.isV1) payload.model = cfg.deployment;
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", "api-key": cfg.key },
-    body: JSON.stringify({
-      prompt: stagePrompt(week, twins),
-      n: 1,
-      size: "1024x1024",
-      quality: "high",
-      output_format: "png",
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`week ${week}: HTTP ${res.status} ${await res.text()}`);
@@ -88,7 +107,7 @@ async function generateOne(cfg, week, twins) {
   if (!b64) throw new Error(`week ${week}: no image in response`);
   const outDir = path.join(import.meta.dirname, "..", "..", "assets", "baby");
   await mkdir(outDir, { recursive: true });
-  const name = `${twins ? "twin_" : ""}week_${String(week).padStart(2, "0")}.png`;
+  const name = `${twins ? "twin_" : ""}week_${String(week).padStart(2, "0")}.jpg`;
   await writeFile(path.join(outDir, name), Buffer.from(b64, "base64"));
   console.log(`✓ ${name}`);
 }
