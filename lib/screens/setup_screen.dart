@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/app_strings.dart';
 import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
@@ -143,7 +144,9 @@ class _SetupScreenState extends State<SetupScreen> {
                   onPressed: _canContinue ? _next : null,
                   style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16)),
-                  child: Text(_page == _pageCount - 1 ? 'Start tracking' : 'Continue'),
+                  child: Text(_page == _pageCount - 1
+                      ? context.tr('start_tracking')
+                      : context.tr('continue')),
                 ),
               ),
             ),
@@ -176,13 +179,14 @@ class _SetupScreenState extends State<SetupScreen> {
       ),
       const SizedBox(height: 24),
       Center(
-        child: Text('Welcome to BumpBuddy',
+        child: Text(context.tr('welcome_title'),
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineMedium),
       ),
       const SizedBox(height: 8),
       Center(
         child: Text(
-          'One place for your pregnancy — weeks, scans, symptoms and reminders. Built for singletons and twins.',
+          context.tr('welcome_sub'),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyLarge,
         ),
@@ -199,7 +203,7 @@ class _SetupScreenState extends State<SetupScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'BumpBuddy is for education and organization only. It never replaces your doctor — always follow your care team\'s advice.',
+                  context.tr('welcome_disclaimer'),
                   style: TextStyle(color: scheme.onSecondaryContainer),
                 ),
               ),

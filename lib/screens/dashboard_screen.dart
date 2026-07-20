@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/app_strings.dart';
 import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
@@ -73,7 +74,7 @@ class DashboardScreen extends StatelessWidget {
       const SizedBox(height: 24),
       Center(
         child: Text(
-          'Educational information only — always follow your doctor\'s advice.',
+          context.tr('edu_only'),
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, color: scheme.outline),
         ),
@@ -190,10 +191,9 @@ class DashboardScreen extends StatelessWidget {
               backgroundColor: scheme.primary,
               child: Icon(Icons.auto_awesome, color: scheme.onPrimary),
             ),
-            title: const Text('Read a scan report',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: const Text(
-                'Photograph the pages — AI fills in the measurements'),
+            title: Text(context.tr('read_a_scan'),
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(context.tr('read_a_scan_sub')),
             trailing: const Icon(Icons.chevron_right),
           ),
         ),
@@ -208,8 +208,8 @@ class DashboardScreen extends StatelessWidget {
               child: Icon(Icons.chat_bubble_outline,
                   color: scheme.onSecondaryContainer),
             ),
-            title: const Text('Ask BumpBuddy'),
-            subtitle: const Text('Questions answered from YOUR data'),
+            title: Text(context.tr('ask_bumpbuddy')),
+            subtitle: Text(context.tr('ask_sub')),
             trailing: const Icon(Icons.chevron_right),
           ),
         ),
@@ -223,7 +223,7 @@ class DashboardScreen extends StatelessWidget {
               backgroundColor: scheme.tertiaryContainer,
               child: Icon(Icons.show_chart, color: scheme.onTertiaryContainer),
             ),
-            title: const Text('Growth'),
+            title: Text(context.tr('growth')),
             subtitle: Text(subtitle),
             trailing: const Icon(Icons.chevron_right),
           ),
@@ -292,7 +292,7 @@ class DashboardScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            p.isTwins ? 'Your twins' : 'Your baby',
+            p.isTwins ? context.tr('your_twins') : context.tr('your_baby'),
             style: TextStyle(color: scheme.onPrimaryContainer, fontSize: 14),
           ),
           const SizedBox(height: 4),

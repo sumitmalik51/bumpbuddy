@@ -66,6 +66,8 @@ Non-negotiable rules:
         'of questions worth asking my doctor. Keep it practical.';
   }
 
+  static const _languageNames = {'en': 'English', 'hi': 'Hindi (हिन्दी)'};
+
   static Future<String> ask({
     required AiConfig config,
     required AppStore store,
@@ -75,8 +77,15 @@ Non-negotiable rules:
     final url = Uri.parse(
         '${config.normalizedEndpoint}/openai/deployments/${config.deployment.trim()}/chat/completions?api-version=$_apiVersion');
 
+    final langName = _languageNames[store.languageCode] ?? 'English';
+    final langLine = store.languageCode == 'en'
+        ? ''
+        : '\n\nIMPORTANT: Reply in $langName. Keep medical terms the user will '
+            'recognise (you may keep common English/clinical words) but write the '
+            'explanation in $langName.';
+
     final messages = <Map<String, String>>[
-      {'role': 'system', 'content': '$_systemPrompt\n\n${buildContext(store)}'},
+      {'role': 'system', 'content': '$_systemPrompt$langLine\n\n${buildContext(store)}'},
       // Recent turns only — the grounding context carries the real state.
       for (final m in history.length > 10
           ? history.sublist(history.length - 10)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'notification_service.dart';
@@ -31,22 +32,31 @@ class BumpBuddyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: store,
-      child: MaterialApp(
-        title: 'BumpBuddy',
-        debugShowCheckedModeBanner: false,
-        theme: _theme(Brightness.light),
-        darkTheme: _theme(Brightness.dark),
-        home: Consumer<AppStore>(
-          builder: (context, store, _) {
-            if (!store.loaded) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            return store.profile == null
-                ? const SetupScreen()
-                : const HomeShell();
-          },
+      child: Consumer<AppStore>(
+        builder: (context, store, _) => MaterialApp(
+          title: 'BumpBuddy',
+          debugShowCheckedModeBanner: false,
+          theme: _theme(Brightness.light),
+          darkTheme: _theme(Brightness.dark),
+          locale: store.loaded ? Locale(store.languageCode) : null,
+          supportedLocales: const [Locale('en'), Locale('hi')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Builder(
+            builder: (context) {
+              if (!store.loaded) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              return store.profile == null
+                  ? const SetupScreen()
+                  : const HomeShell();
+            },
+          ),
         ),
       ),
     );

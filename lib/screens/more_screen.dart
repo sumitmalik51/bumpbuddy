@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../doctor_summary.dart';
+import '../l10n/app_strings.dart';
 import '../models.dart';
 import '../notification_service.dart';
 import '../store.dart';
@@ -153,6 +154,21 @@ class MoreScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          Card(
+            color: scheme.surfaceContainerHigh,
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: scheme.primaryContainer,
+                child: Icon(Icons.language, color: scheme.primary),
+              ),
+              title: Text(context.tr('language')),
+              subtitle: Text(AppStrings.languageNames[store.languageCode] ??
+                  store.languageCode),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _pickLanguage(context, store),
+            ),
+          ),
           _navTile(
               context,
               Icons.child_care_outlined,
@@ -442,6 +458,32 @@ class MoreScreen extends StatelessWidget {
     p.deliveredAt = DateTime.now();
     await store.saveProfile(p);
     await NotificationService.instance.cancelAll();
+  }
+
+  void _pickLanguage(BuildContext context, AppStore store) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.tr('choose_language')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final code in AppStrings.supported)
+              ListTile(
+                title: Text(AppStrings.languageNames[code] ?? code),
+                trailing: store.languageCode == code
+                    ? Icon(Icons.check,
+                        color: Theme.of(context).colorScheme.primary)
+                    : null,
+                onTap: () {
+                  store.setLanguage(code);
+                  Navigator.pop(context);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _confirmReset(BuildContext context, AppStore store) {
