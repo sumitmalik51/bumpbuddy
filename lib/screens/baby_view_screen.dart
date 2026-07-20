@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
-import '../widgets/womb_baby.dart';
+import '../widgets/baby_visual.dart';
+import '../widgets/womb_baby.dart' show babySkinTones;
 
 /// "Your baby this week" — a large 3D-style illustration that grows with
 /// gestational age, plus the week's size, development and tips. Twins show
@@ -44,7 +45,7 @@ class BabyViewScreen extends StatelessWidget {
                       for (final b in p.babies)
                         Column(
                           children: [
-                            WombBaby(
+                            BabyVisual(
                                 week: week,
                                 size: 150,
                                 toneIndex: store.babySkinTone),
@@ -58,7 +59,7 @@ class BabyViewScreen extends StatelessWidget {
                     ],
                   )
                 else
-                  WombBaby(
+                  BabyVisual(
                       week: week, size: 240, toneIndex: store.babySkinTone),
                 const SizedBox(height: 12),
                 Text('Week $week',

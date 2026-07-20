@@ -6,7 +6,7 @@ import '../models.dart';
 import '../pregnancy_math.dart';
 import '../store.dart';
 import '../weekly_content.dart';
-import '../widgets/womb_baby.dart';
+import '../widgets/baby_visual.dart';
 import 'baby_view_screen.dart';
 import 'chat_screen.dart';
 import 'contraction_timer_screen.dart';
@@ -366,8 +366,11 @@ class DashboardScreen extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  WombBaby(
-                      week: week, size: 52, toneIndex: store.babySkinTone),
+                  BabyVisual(
+                      week: week,
+                      size: 52,
+                      toneIndex: store.babySkinTone,
+                      twins: store.profile!.isTwins),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(name,
