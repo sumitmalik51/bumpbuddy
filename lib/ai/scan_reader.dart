@@ -248,6 +248,7 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
     required AiConfig config,
     required List<File> images,
     required bool twinsHint,
+    void Function(double progress, String phase)? onProgress,
   }) async {
     if (images.isEmpty) {
       throw ScanReaderException('Attach at least one report photo first.');
@@ -265,20 +266,37 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
       }
     }
 
+    onProgress?.call(
+        0.1,
+        images.length > 1
+            ? 'Reading ${images.length} pages…'
+            : 'Reading the report…');
+
     if (images.length == 1) {
       final result = await _extractPage(config, images.first, twinsHint,
           pageIndex: 0, pageCount: 1);
+      onProgress?.call(0.95, 'Finishing…');
       result['derived'] = computeDiscordance(result);
+      onProgress?.call(1.0, 'Done');
       return result;
     }
 
+    var done = 0;
     final pages = await Future.wait([
       for (var i = 0; i < images.length; i++)
         _extractPage(config, images[i], twinsHint,
-            pageIndex: i, pageCount: images.length),
+                pageIndex: i, pageCount: images.length)
+            .then((r) {
+          done++;
+          onProgress?.call(
+              0.1 + 0.8 * done / images.length, 'Read $done of ${images.length}…');
+          return r;
+        }),
     ]);
+    onProgress?.call(0.95, 'Merging pages…');
     final merged = mergePages(pages);
     merged['derived'] = computeDiscordance(merged);
+    onProgress?.call(1.0, 'Done');
     return merged;
   }
 
@@ -385,6 +403,31 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
     };
   }
 
+  /// POSTs to Azure with one automatic retry on a transient network drop
+  /// (a socket dropped by a brief backgrounding recovers instead of failing
+  /// the whole read). HTTP error statuses are returned as-is for the caller
+  /// to translate — only connection-level failures are retried.
+  static Future<http.Response> _postWithRetry(
+      Uri url, String apiKey, Map<String, dynamic> payload) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await http
+            .post(url,
+                headers: {
+                  'content-type': 'application/json',
+                  'api-key': apiKey,
+                },
+                body: jsonEncode(payload))
+            .timeout(const Duration(minutes: 4));
+      } on Exception catch (e) {
+        lastError = e;
+        if (attempt == 0) await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+    throw ScanReaderException('Could not reach your Azure endpoint: $lastError');
+  }
+
   /// Reads ONE page (with auto-tiling for large photos).
   static Future<Map<String, dynamic>> _extractPage(
     AiConfig config,
@@ -456,19 +499,7 @@ Note: the user has indicated this is a TWIN pregnancy. Look carefully for a seco
       },
     };
 
-    http.Response res;
-    try {
-      res = await http
-          .post(url,
-              headers: {
-                'content-type': 'application/json',
-                'api-key': config.apiKey.trim(),
-              },
-              body: jsonEncode(payload))
-          .timeout(const Duration(minutes: 4));
-    } on Exception catch (e) {
-      throw ScanReaderException('Could not reach your Azure endpoint: $e');
-    }
+    final res = await _postWithRetry(url, config.apiKey.trim(), payload);
 
     if (res.statusCode == 401) {
       throw ScanReaderException(

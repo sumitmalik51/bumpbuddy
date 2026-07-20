@@ -109,6 +109,7 @@ Your entire output must conform to the provided JSON schema.''';
   static Future<Map<String, dynamic>> extract({
     required AiConfig config,
     required List<File> images,
+    void Function(double progress, String phase)? onProgress,
   }) async {
     if (images.isEmpty) {
       throw ScanReaderException('Attach at least one report photo first.');
@@ -117,12 +118,22 @@ Your entire output must conform to the provided JSON schema.''';
       throw ScanReaderException('Up to 4 pages per reading, please.');
     }
 
+    onProgress?.call(0.1, 'Reading the report…');
+    var done = 0;
     final pages = await Future.wait([
       for (var i = 0; i < images.length; i++)
-        _extractPage(config, images[i], pageIndex: i, pageCount: images.length),
+        _extractPage(config, images[i], pageIndex: i, pageCount: images.length)
+            .then((r) {
+          done++;
+          onProgress?.call(
+              0.1 + 0.8 * done / images.length, 'Read $done of ${images.length}…');
+          return r;
+        }),
     ]);
+    onProgress?.call(0.95, 'Organizing results…');
     final merged = mergePages(pages);
     merged['kind'] = 'lab';
+    onProgress?.call(1.0, 'Done');
     return merged;
   }
 
