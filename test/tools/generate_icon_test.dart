@@ -144,4 +144,43 @@ void main() {
     expect(File('assets/icon/icon_bg.png').existsSync(), isTrue);
     expect(File('assets/icon/icon_fg.png').existsSync(), isTrue);
   });
+
+  test('generate Play feature graphic (1024x500)', () async {
+    const w = 1024.0, h = 500.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, w, h));
+    const rect = Rect.fromLTWH(0, 0, w, h);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_roseColor, _violetColor],
+        ).createShader(rect),
+    );
+
+    // Soft floating hearts for texture.
+    final heartPaint = Paint()..color = Colors.white.withValues(alpha: 0.10);
+    for (final (cx, cy, s) in [
+      (760.0, 130.0, 46.0),
+      (860.0, 300.0, 30.0),
+      (660.0, 360.0, 26.0),
+      (930.0, 200.0, 22.0),
+    ]) {
+      canvas.drawPath(
+          _heart(Rect.fromCenter(center: Offset(cx, cy), width: s, height: s)),
+          heartPaint);
+    }
+
+    // Pregnant-parent motif, centred vertically.
+    _paintMotif(canvas, const Rect.fromLTWH(90, 70, 360, 360));
+
+    final image = await recorder.endRecording().toImage(1024, 500);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final file = File('store_assets/feature_graphic.png');
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes!.buffer.asUint8List());
+    expect(file.existsSync(), isTrue);
+  });
 }
