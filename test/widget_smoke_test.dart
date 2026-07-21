@@ -71,6 +71,6 @@ void main() {
   testWidgets('setup screen boots when no profile exists', (tester) async {
     final store = await _storeWith({});
     await _pumpApp(tester, store);
-    expect(find.text('Welcome to BumpBuddy'), findsOneWidget);
+    expect(find.text('Welcome to My Pregnancy'), findsOneWidget);
   });
 }

@@ -48,16 +48,16 @@ class AppStrings {
     'growth': 'Growth',
     'read_a_scan': 'Read a scan report',
     'read_a_scan_sub': 'Photograph the pages — AI fills in the measurements',
-    'ask_bumpbuddy': 'Ask BumpBuddy',
+    'ask_bumpbuddy': 'Ask',
     'ask_sub': 'Questions answered from YOUR data',
     'edu_only':
         "Educational information only — always follow your doctor's advice.",
     // Onboarding
-    'welcome_title': 'Welcome to BumpBuddy',
+    'welcome_title': 'Welcome to My Pregnancy',
     'welcome_sub':
         'One place for your pregnancy — weeks, scans, symptoms and reminders. Built for singletons and twins.',
     'welcome_disclaimer':
-        'BumpBuddy is for education and organization only. It never replaces your doctor — always follow your care team\'s advice.',
+        'My Pregnancy is for education and organization only. It never replaces your doctor — always follow your care team\'s advice.',
     'continue': 'Continue',
     'how_many': 'How many little ones?',
     'how_many_sub': 'The whole app adapts to your answer.',
@@ -110,15 +110,15 @@ class AppStrings {
     'growth': 'वृद्धि',
     'read_a_scan': 'स्कैन रिपोर्ट पढ़ें',
     'read_a_scan_sub': 'पन्नों की फ़ोटो लें — AI माप भर देगा',
-    'ask_bumpbuddy': 'BumpBuddy से पूछें',
+    'ask_bumpbuddy': 'पूछें',
     'ask_sub': 'आपके अपने डेटा से उत्तर',
     'edu_only':
         'केवल जानकारी के लिए — हमेशा अपने डॉक्टर की सलाह मानें।',
-    'welcome_title': 'BumpBuddy में आपका स्वागत है',
+    'welcome_title': 'My Pregnancy में आपका स्वागत है',
     'welcome_sub':
         'आपकी प्रेग्नेंसी सब एक जगह — सप्ताह, स्कैन, लक्षण और रिमाइंडर। एक और जुड़वाँ शिशुओं दोनों के लिए।',
     'welcome_disclaimer':
-        'BumpBuddy केवल जानकारी और व्यवस्था के लिए है। यह आपके डॉक्टर का विकल्प नहीं है — हमेशा अपनी देखभाल टीम की सलाह मानें।',
+        'My Pregnancy केवल जानकारी और व्यवस्था के लिए है। यह आपके डॉक्टर का विकल्प नहीं है — हमेशा अपनी देखभाल टीम की सलाह मानें।',
     'continue': 'आगे बढ़ें',
     'how_many': 'कितने नन्हे मेहमान?',
     'how_many_sub': 'पूरा ऐप आपके उत्तर के अनुसार ढल जाता है।',

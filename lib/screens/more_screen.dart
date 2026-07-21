@@ -199,7 +199,7 @@ class MoreScreen extends StatelessWidget {
               '5-1-1 pattern awareness for labour', const ContractionTimerScreen()),
           _navTile(context, Icons.favorite_outline, 'Blood pressure',
               'Home & clinic readings, high-reading flags', const BpScreen()),
-          _navTile(context, Icons.chat_bubble_outline, 'Ask BumpBuddy',
+          _navTile(context, Icons.chat_bubble_outline, 'Ask',
               'AI chat grounded in your own data', const ChatScreen()),
           _navTile(context, Icons.quiz_outlined, 'Common questions',
               'Answers to frequent pregnancy questions', const FaqScreen()),
@@ -357,7 +357,7 @@ class MoreScreen extends StatelessWidget {
                   Text('About', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   const Text(
-                    'BumpBuddy organizes your pregnancy — it does not diagnose, treat, or replace medical advice. '
+                    'My Pregnancy organizes your pregnancy — it does not diagnose, treat, or replace medical advice. '
                     'All schedules and week-by-week notes are typical patterns for education; your doctor\'s plan always takes precedence. '
                     'Your data stays on this device.',
                     style: TextStyle(fontSize: 13),
@@ -402,7 +402,7 @@ class MoreScreen extends StatelessWidget {
   Future<void> _restoreBackup(BuildContext context, AppStore store) async {
     final messenger = ScaffoldMessenger.of(context);
     const group = XTypeGroup(
-        label: 'BumpBuddy backup',
+        label: 'My Pregnancy backup',
         extensions: ['json'],
         mimeTypes: ['application/json']);
     final file = await openFile(acceptedTypeGroups: const [group]);

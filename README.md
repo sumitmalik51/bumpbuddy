@@ -1,10 +1,10 @@
-# BumpBuddy 💗💜
+# My Pregnancy 💗💜
 
-**A twins-first pregnancy companion with AI scan reading.**
+**An AI pregnancy companion with scan reading — and best-in-class twin support.**
 *"Photograph your scan. Understand your pregnancy."*
 
-BumpBuddy is a local-first Flutter app for expecting parents — built around the
-one thing no mainstream pregnancy app does properly: **twins**. Chorionicity
+My Pregnancy is a local-first Flutter app for expecting parents — with a
+standout feature no mainstream pregnancy app does properly: **twins**. Chorionicity
 (DCDA / MCDA / MCMA) drives the whole app — scan schedules, arrival windows,
 growth comparison and discordance flags — and an AI scan reader turns photos of
 ultrasound reports into structured, per-baby data.

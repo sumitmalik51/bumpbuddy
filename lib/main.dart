@@ -34,7 +34,7 @@ class BumpBuddyApp extends StatelessWidget {
       value: store,
       child: Consumer<AppStore>(
         builder: (context, store, _) => MaterialApp(
-          title: 'BumpBuddy',
+          title: 'My Pregnancy',
           debugShowCheckedModeBanner: false,
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),

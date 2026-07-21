@@ -105,7 +105,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ask BumpBuddy'),
+        title: const Text('Ask'),
         actions: [
           IconButton(
             icon: const Icon(Icons.quiz_outlined),
@@ -277,7 +277,7 @@ class _ChatScreenState extends State<ChatScreen> {
             borderRadius: BorderRadius.circular(20),
             onTap: () => SharePlus.instance.share(ShareParams(
                 text:
-                    '${question.isNotEmpty ? '$question\n\n' : ''}$answer\n\n— via BumpBuddy')),
+                    '${question.isNotEmpty ? '$question\n\n' : ''}$answer\n\n— via My Pregnancy')),
             child: Padding(
               padding: const EdgeInsets.all(6),
               child: Icon(Icons.ios_share,
@@ -381,7 +381,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Icon(Icons.chat_bubble_outline, size: 56, color: scheme.primary),
             const SizedBox(height: 16),
             const Text(
-              'Connect your Azure AI once, and BumpBuddy can answer questions about YOUR pregnancy data.',
+              'Connect your Azure AI once, and the app can answer questions about YOUR pregnancy data.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),

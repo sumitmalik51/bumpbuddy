@@ -14,7 +14,7 @@ String buildDoctorSummary(AppStore store) {
   final fmt = DateFormat('d MMM yyyy');
   final b = StringBuffer();
 
-  b.writeln('BumpBuddy summary — ${fmt.format(DateTime.now())}');
+  b.writeln('My Pregnancy summary — ${fmt.format(DateTime.now())}');
   b.writeln('');
   b.writeln(
       '${p.isTwins ? 'Twin pregnancy (${p.chorionicity?.shortName ?? 'chorionicity not set'})' : 'Singleton pregnancy'}${p.ivf ? ' · IVF' : ''}');
@@ -116,6 +116,6 @@ String buildDoctorSummary(AppStore store) {
   }
 
   b.writeln('');
-  b.writeln('Shared from BumpBuddy — data as entered/AI-read by the user.');
+  b.writeln('Shared from My Pregnancy — data as entered/AI-read by the user.');
   return b.toString();
 }

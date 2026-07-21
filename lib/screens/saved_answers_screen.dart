@@ -28,7 +28,7 @@ class SavedAnswersScreen extends StatelessWidget {
                         size: 64, color: scheme.outline),
                     const SizedBox(height: 16),
                     const Text(
-                      'Tap the bookmark on any answer in Ask BumpBuddy to keep it here for quick reference.',
+                      'Tap the bookmark on any answer in Ask to keep it here for quick reference.',
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -69,7 +69,7 @@ class SavedAnswersScreen extends StatelessWidget {
                               onPressed: () => SharePlus.instance.share(
                                   ShareParams(
                                       text:
-                                          '${s.question.isNotEmpty ? '${s.question}\n\n' : ''}${s.answer}\n\n— via BumpBuddy')),
+                                          '${s.question.isNotEmpty ? '${s.question}\n\n' : ''}${s.answer}\n\n— via My Pregnancy')),
                             ),
                             IconButton(
                               visualDensity: VisualDensity.compact,

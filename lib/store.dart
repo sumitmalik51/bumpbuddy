@@ -387,7 +387,7 @@ class AppStore extends ChangeNotifier {
 
   /// Everything the app knows, as one JSON document.
   Map<String, dynamic> exportAll() => {
-        'app': 'BumpBuddy',
+        'app': 'My Pregnancy',
         'backupVersion': 1,
         'exportedAt': DateTime.now().toIso8601String(),
         'profile': profile?.toJson(),
@@ -408,8 +408,9 @@ class AppStore extends ChangeNotifier {
   /// Replaces ALL current data with [data] (a previously exported backup).
   /// Attachment files are not part of the backup — only their metadata.
   Future<void> importAll(Map<String, dynamic> data) async {
-    if (data['app'] != 'BumpBuddy') {
-      throw const FormatException('Not a BumpBuddy backup file.');
+    // Accept the current label and the pre-rename one (backward compat).
+    if (data['app'] != 'My Pregnancy' && data['app'] != 'BumpBuddy') {
+      throw const FormatException('Not a My Pregnancy backup file.');
     }
     List<T> read<T>(String key, T Function(Map<String, dynamic>) f) =>
         ((data[key] ?? []) as List)

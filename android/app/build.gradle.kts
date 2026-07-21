@@ -23,8 +23,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.bumpbuddy.bumpbuddy"
+        // Play Store identity for "My Pregnancy". Permanent once published.
+        // (namespace stays as the original internal package — invisible to users.)
+        applicationId = "com.mypregnancy.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
