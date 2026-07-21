@@ -182,5 +182,16 @@ void main() {
     await file.parent.create(recursive: true);
     await file.writeAsBytes(bytes!.buffer.asUint8List());
     expect(file.existsSync(), isTrue);
+
+    // Play hi-res store icon (512x512): gradient + motif, same as launcher.
+    final ir = ui.PictureRecorder();
+    final ic = Canvas(ir, const Rect.fromLTWH(0, 0, 512, 512));
+    _paintGradient(ic, const Rect.fromLTWH(0, 0, 512, 512));
+    _paintMotif(ic, const Rect.fromLTWH(51, 51, 410, 410));
+    final iconImg = await ir.endRecording().toImage(512, 512);
+    final iconBytes = await iconImg.toByteData(format: ui.ImageByteFormat.png);
+    await File('store_assets/store_icon_512.png')
+        .writeAsBytes(iconBytes!.buffer.asUint8List());
+    expect(File('store_assets/store_icon_512.png').existsSync(), isTrue);
   });
 }
